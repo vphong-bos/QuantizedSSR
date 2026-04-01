@@ -11,34 +11,34 @@ export PIP_NO_INPUT=1
 export PIP_PROGRESS_BAR=off
 export PIP_PREFER_BINARY=1
 
-# On Kaggle, avoid venv. Install to user site.
 PIP_USER_FLAG="--user"
 
-python -m pip install ${PIP_USER_FLAG} -q --upgrade pip setuptools wheel
+python -m pip install ${PIP_USER_FLAG} -q --upgrade pip setuptools wheel packaging
 
-# Remove conflicting preinstalled OpenMMLab bits if present
-python -m pip uninstall -y mmcv mmcv-full mmengine mmdet || true
+# Remove conflicting OpenMMLab bits if present
+python -m pip uninstall -y mmcv mmcv-full mmcv-lite mmengine mmdet mim openmim || true
 
-# Install legacy-compatible torch first
-python -m pip install ${PIP_USER_FLAG} -q --prefer-binary \
-  torch==1.13.1 torchvision==0.14.1 \
-  --index-url https://download.pytorch.org/whl/cpu
+# Keep Kaggle's existing torch. Do NOT downgrade torch on this runtime.
+python - <<'PY'
+import sys
+try:
+    import torch
+    print("Using torch:", torch.__version__)
+except Exception:
+    print("Torch is not installed in this runtime.")
+    sys.exit(1)
+PY
 
-# Install prebuilt mmcv-full wheel
-python -m pip install ${PIP_USER_FLAG} -q --prefer-binary \
-  mmcv-full==1.7.2 \
-  -f https://download.openmmlab.com/mmcv/dist/cpu/torch1.13/index.html
-
-# Install mmdet
-python -m pip install ${PIP_USER_FLAG} -q --prefer-binary \
-  mmdet==2.26.0
-
-# Install the rest, excluding OpenMMLab lines
+# Install non-OpenMMLab deps first
 REST_REQ="$(mktemp)"
-grep -vE '^[[:space:]]*(mmcv-full|mmcv|mmengine|mmdet)([<>=!~].*)?$|^[[:space:]]*--find-links ' "${REQ_FILE}" > "${REST_REQ}"
-
+grep -vE '^[[:space:]]*(mmengine|mmcv|mmcv-lite|mmcv-full|mmdet|openmim|mim)([<>=!~].*)?$|^[[:space:]]*--find-links ' "${REQ_FILE}" > "${REST_REQ}"
 python -m pip install ${PIP_USER_FLAG} -q --prefer-binary -r "${REST_REQ}"
 rm -f "${REST_REQ}"
+
+# Install modern OpenMMLab stack without openmim
+python -m pip install ${PIP_USER_FLAG} -q --prefer-binary mmengine
+python -m pip install ${PIP_USER_FLAG} -q --prefer-binary mmcv-lite
+python -m pip install ${PIP_USER_FLAG} -q --prefer-binary mmdet
 
 # Move to working directory (if defined)
 if [[ -n "${WORKING_DIR:-}" ]]; then
