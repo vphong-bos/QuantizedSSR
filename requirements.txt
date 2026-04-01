@@ -16,7 +16,6 @@ flowlib
 nuscenes-devkit==1.2.0 # compatible with matplotlib>=3.6.0
 
 # Torch and related libraries
-torch==2.1.0+cpu
 torch-fidelity==0.3.0
 torchaudio==2.1.0+cpu
 torcheval==0.0.7
