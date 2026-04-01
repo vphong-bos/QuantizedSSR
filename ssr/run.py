@@ -14,19 +14,13 @@ if py_deps:
 
 sys.path.append('')
 
-import argparse
-import mmcv
-import torch
-torch.multiprocessing.set_sharing_strategy('file_system')
-import warnings
+print("PY_DEPS_DIR =", py_deps)
+print("sys.path[:6] =", sys.path[:6])
 
-import sys
-sys.path.append('')
 import argparse
 import mmcv
-import os
+print("mmcv loaded from:", mmcv.__file__)
 import torch
-torch.multiprocessing.set_sharing_strategy('file_system')
 import warnings
 from mmcv import Config, DictAction
 from mmcv.cnn import fuse_conv_bn

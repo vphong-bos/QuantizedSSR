@@ -2,39 +2,26 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+REPO_ROOT="${SCRIPT_DIR}"
 REQ_FILE="${SCRIPT_DIR}/requirements.txt"
+PY_DEPS_DIR="${SCRIPT_DIR}/python_env_ssr_pkgs"
 
 cd "${REPO_ROOT}"
 
-echo "Setting SSR environment variables..."
-
-export ARCH_NAME=blackhole
-export TT_METAL_DISABLE_L1_DATA_CACHE_RISCVS="BR,NC,TR,ER"
-export TT_METAL_HOME="${REPO_ROOT}"
-export WORKING_DIR="${TT_METAL_HOME}/models/bos_model/ssr"
-export BOS_METAL_HOME="${TT_METAL_HOME}/tt_metal/third_party/bos-metal"
-export PY_DEPS_DIR="${TT_METAL_HOME}/python_env_ssr_pkgs"
+echo "Setting Python environment..."
 
 mkdir -p "${PY_DEPS_DIR}"
 
-# 👇 CRITICAL: force Python to use our packages
+export PY_DEPS_DIR
 export PYTHONNOUSERSITE=1
-export PYTHONPATH="${PY_DEPS_DIR}:${TT_METAL_HOME}:${BOS_METAL_HOME}:${WORKING_DIR}:SSR"
-
-if [[ "${TT_METAL_ENABLE_DEBUG:-0}" -eq 1 ]]; then
-  export TT_METAL_LOGGER_LEVEL="Debug"
-  export TT_METAL_LOGGER_TYPES="Op"
-  export TT_METAL_DPRINT_CHIPS=0
-  export TT_METAL_DPRINT_CORES=0,0
-  export TTNN_TILIZE_FORCE_SINGLE_TILE_INTERLEAVED=1
-fi
+export PYTHONPATH="${PY_DEPS_DIR}:${REPO_ROOT}:${REPO_ROOT}/ssr:${PYTHONPATH:-}"
 
 echo "Python executable: $(which python)"
 python - <<'PY'
-import sys
+import sys, os
 print("Python version:", sys.version)
-print("sys.path head:", sys.path[:8])
+print("PY_DEPS_DIR:", os.environ.get("PY_DEPS_DIR"))
+print("sys.path head:", sys.path[:6])
 PY
 
 export PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -44,7 +31,7 @@ export PIP_PREFER_BINARY=1
 
 TARGET_FLAG=(--target "${PY_DEPS_DIR}" --upgrade --ignore-installed)
 
-echo "Installing core dependencies..."
+echo "Installing core deps into ${PY_DEPS_DIR} ..."
 python -m pip install -q "${TARGET_FLAG[@]}" \
   "numpy==2.1.3" \
   "requests>=2.32,<3" \
@@ -52,7 +39,7 @@ python -m pip install -q "${TARGET_FLAG[@]}" \
   "filelock>=3.15" \
   "opencv-python>=4.10,<5"
 
-echo "Checking torch..."
+echo "Checking torch from base runtime..."
 python - <<'PY'
 import torch
 print("Torch:", torch.__version__)
@@ -67,11 +54,10 @@ python -m pip install -q "${TARGET_FLAG[@]}" \
   "mmcv-lite==2.1.0" \
   "mmdet==3.3.0"
 
-echo "Verifying..."
+echo "Verifying imports..."
 python - <<'PY'
 import sys
 import numpy, cv2, torch, mmengine, mmcv, mmdet
-
 print("numpy:", numpy.__version__)
 print("cv2:", cv2.__version__)
 print("torch:", torch.__version__)
@@ -81,20 +67,17 @@ print("mmdet:", mmdet.__version__)
 print("mmcv path:", mmcv.__file__)
 PY
 
-echo "Setup complete."
-
 echo "Writing run helper..."
-cat > "${WORKING_DIR}/run_ssr.sh" <<EOF
+cat > "${SCRIPT_DIR}/run_ssr.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-export ARCH_NAME=blackhole
-export TT_METAL_DISABLE_L1_DATA_CACHE_RISCVS="BR,NC,TR,ER"
-export TT_METAL_HOME="${TT_METAL_HOME}"
-export WORKING_DIR="${WORKING_DIR}"
-export BOS_METAL_HOME="${BOS_METAL_HOME}"
 export PY_DEPS_DIR="${PY_DEPS_DIR}"
 export PYTHONNOUSERSITE=1
-export PYTHONPATH="${PY_DEPS_DIR}:${TT_METAL_HOME}:${BOS_METAL_HOME}:${WORKING_DIR}:SSR"
+export PYTHONPATH="${PY_DEPS_DIR}:${REPO_ROOT}:${REPO_ROOT}/ssr"
+cd "${REPO_ROOT}"
 python ssr/run.py "\$@"
 EOF
-chmod +x "${WORKING_DIR}/run_ssr.sh"
+chmod +x "${SCRIPT_DIR}/run_ssr.sh"
+
+echo "Setup complete."
+echo "Run with: ${SCRIPT_DIR}/run_ssr.sh --help"
