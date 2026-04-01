@@ -7,8 +7,18 @@ import os
 import sys
 
 py_deps = os.environ.get("PY_DEPS_DIR")
-if py_deps and py_deps not in sys.path:
+if py_deps:
+    if py_deps in sys.path:
+        sys.path.remove(py_deps)
     sys.path.insert(0, py_deps)
+
+sys.path.append('')
+
+import argparse
+import mmcv
+import torch
+torch.multiprocessing.set_sharing_strategy('file_system')
+import warnings
 
 import sys
 sys.path.append('')
