@@ -14,7 +14,13 @@ export TT_METAL_DISABLE_L1_DATA_CACHE_RISCVS="BR,NC,TR,ER"
 export TT_METAL_HOME="${REPO_ROOT}"
 export WORKING_DIR="${TT_METAL_HOME}/models/bos_model/ssr"
 export BOS_METAL_HOME="${TT_METAL_HOME}/tt_metal/third_party/bos-metal"
-export PYTHONPATH="${TT_METAL_HOME}:${BOS_METAL_HOME}:${WORKING_DIR}:SSR:${PYTHONPATH:-}"
+export PY_DEPS_DIR="${TT_METAL_HOME}/python_env_ssr_pkgs"
+
+mkdir -p "${PY_DEPS_DIR}"
+
+# 👇 CRITICAL: force Python to use our packages
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${PY_DEPS_DIR}:${TT_METAL_HOME}:${BOS_METAL_HOME}:${WORKING_DIR}:SSR"
 
 if [[ "${TT_METAL_ENABLE_DEBUG:-0}" -eq 1 ]]; then
   export TT_METAL_LOGGER_LEVEL="Debug"
@@ -28,49 +34,51 @@ echo "Python executable: $(which python)"
 python - <<'PY'
 import sys
 print("Python version:", sys.version)
+print("sys.path head:", sys.path[:8])
 PY
 
 export PIP_DISABLE_PIP_VERSION_CHECK=1
 export PIP_NO_INPUT=1
 export PIP_PROGRESS_BAR=off
+export PIP_PREFER_BINARY=1
 
-echo "Upgrading pip..."
-python -m pip install -q --upgrade pip setuptools wheel
+TARGET_FLAG=(--target "${PY_DEPS_DIR}" --upgrade --ignore-installed)
 
-echo "Installing requirements..."
-python -m pip install -q --no-deps -r "${REQ_FILE}"
+echo "Installing core dependencies..."
+python -m pip install -q "${TARGET_FLAG[@]}" \
+  "numpy==2.1.3" \
+  "requests>=2.32,<3" \
+  "tqdm>=4.67,<5" \
+  "filelock>=3.15" \
+  "opencv-python>=4.10,<5"
 
-# Move to working directory
-echo "Changing to WORKING_DIR: ${WORKING_DIR}"
-cd "${WORKING_DIR}"
+echo "Checking torch..."
+python - <<'PY'
+import torch
+print("Torch:", torch.__version__)
+PY
 
-# Paths
-SSR_DIR="${SCRIPT_DIR}/ssr"
-REFERENCE_DIR="${SSR_DIR}/reference"
-DATA_DIR="${SCRIPT_DIR}/data"
-KAGGLE_DATASET_DIR="/kaggle/input/datasets/vuthanhphong/ssr-dataset/dataset"
+echo "Installing project requirements..."
+python -m pip install -q "${TARGET_FLAG[@]}" -r "${REQ_FILE}"
 
-echo "Preparing data directory..."
-mkdir -p "${DATA_DIR}"
+echo "Installing OpenMMLab..."
+python -m pip install -q "${TARGET_FLAG[@]}" \
+  "mmengine==0.10.7" \
+  "mmcv-lite==2.1.0" \
+  "mmdet==3.3.0"
 
-echo "Reconstructing data.zip from parts..."
-cat "${SSR_DIR}"/data.zip.part-a* > "${SSR_DIR}/data.zip"
+echo "Verifying..."
+python - <<'PY'
+import sys
+import numpy, cv2, torch, mmengine, mmcv, mmdet
 
-echo "Unzipping data.zip to data directory..."
-unzip -q "${SSR_DIR}/data.zip" -d "${DATA_DIR}"
-
-mkdir -p "${DATA_DIR}/dataset"
-
-if [[ -d "${KAGGLE_DATASET_DIR}" ]]; then
-  echo "Kaggle dataset found. Copying to ${DATA_DIR}/dataset ..."
-  cp -r "${KAGGLE_DATASET_DIR}/." "${DATA_DIR}/dataset/"
-  echo "Dataset copied successfully."
-else
-  echo "WARNING: Kaggle dataset not found at ${KAGGLE_DATASET_DIR}"
-fi
-
-mkdir -p "${REFERENCE_DIR}"
-ln -sfn "${DATA_DIR}/dataset" "${REFERENCE_DIR}/dataset"
-echo "Symlink created: ${REFERENCE_DIR}/dataset -> ${DATA_DIR}/dataset"
+print("numpy:", numpy.__version__)
+print("cv2:", cv2.__version__)
+print("torch:", torch.__version__)
+print("mmengine:", mmengine.__version__)
+print("mmcv:", mmcv.__version__)
+print("mmdet:", mmdet.__version__)
+print("mmcv path:", mmcv.__file__)
+PY
 
 echo "Setup complete."
