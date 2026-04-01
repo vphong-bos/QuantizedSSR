@@ -3,6 +3,13 @@
 # ---------------------------------------------
 #  Modified by Zhiqi Li
 # ---------------------------------------------
+import os
+import sys
+
+py_deps = os.environ.get("PY_DEPS_DIR")
+if py_deps and py_deps not in sys.path:
+    sys.path.insert(0, py_deps)
+
 import sys
 sys.path.append('')
 import argparse
