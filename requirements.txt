@@ -14,7 +14,3 @@ rich>=14.2.0
 pyquaternion
 flowlib
 nuscenes-devkit==1.2.0
-
-mmengine
-mmcv-lite
-mmdet
