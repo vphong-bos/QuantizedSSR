@@ -16,7 +16,6 @@ export WORKING_DIR="${TT_METAL_HOME}/models/bos_model/ssr"
 export BOS_METAL_HOME="${TT_METAL_HOME}/tt_metal/third_party/bos-metal"
 export PYTHONPATH="${TT_METAL_HOME}:${BOS_METAL_HOME}:${PYTHONPATH:-}:${WORKING_DIR}:SSR"
 
-# Optional debug block from old env_set.sh
 if [[ "${TT_METAL_ENABLE_DEBUG:-0}" -eq 1 ]]; then
   export TT_METAL_LOGGER_LEVEL="Debug"
   export TT_METAL_LOGGER_TYPES="Op"
@@ -25,7 +24,6 @@ if [[ "${TT_METAL_ENABLE_DEBUG:-0}" -eq 1 ]]; then
   export TTNN_TILIZE_FORCE_SINGLE_TILE_INTERLEAVED=1
 fi
 
-# Use python_env_ssr if present, otherwise stay on current Kaggle Python
 PYTHON_ENV_DIR="${TT_METAL_HOME}/python_env_ssr"
 if [[ -f "${PYTHON_ENV_DIR}/bin/activate" ]]; then
   echo "Activating existing Python environment: ${PYTHON_ENV_DIR}"
@@ -36,7 +34,10 @@ else
 fi
 
 echo "Python executable: $(which python)"
-python -c "import sys; print('Python version:', sys.version)"
+python - <<'PY'
+import sys
+print("Python version:", sys.version)
+PY
 
 export PIP_DISABLE_PIP_VERSION_CHECK=1
 export PIP_NO_INPUT=1
@@ -60,12 +61,19 @@ except Exception as e:
     sys.exit(1)
 PY
 
-# Install non-OpenMMLab requirements first
+echo "Fixing Kaggle core dependencies..."
+python -m pip install -q --upgrade \
+  "numpy>=2.0" \
+  "requests>=2.32" \
+  "tqdm>=4.67" \
+  "filelock>=3.15" \
+  "opencv-python>=4.13"
+
 REST_REQ="$(mktemp)"
 grep -vE '^[[:space:]]*(mmengine|mmcv|mmcv-lite|mmcv-full|mmdet|openmim|mim)([<>=!~].*)?$|^[[:space:]]*--find-links ' "${REQ_FILE}" > "${REST_REQ}"
 
 echo "Installing non-OpenMMLab requirements..."
-python -m pip install -q --prefer-binary -r "${REST_REQ}"
+python -m pip install -q --prefer-binary --no-deps -r "${REST_REQ}"
 rm -f "${REST_REQ}"
 
 echo "Installing OpenMMLab packages..."
@@ -75,11 +83,16 @@ python -m pip install -q --prefer-binary mmdet
 
 echo "Verifying core imports..."
 python - <<'PY'
+import numpy
 import torch
+import cv2
 import mmengine
 import mmcv
 import mmdet
+
+print("numpy:", numpy.__version__)
 print("torch:", torch.__version__)
+print("cv2:", cv2.__version__)
 print("mmengine:", mmengine.__version__)
 print("mmcv:", mmcv.__version__)
 print("mmdet:", mmdet.__version__)

@@ -15,7 +15,6 @@ pyquaternion
 flowlib
 nuscenes-devkit==1.2.0
 
-# OpenMMLab
 mmengine
 mmcv-lite
 mmdet
