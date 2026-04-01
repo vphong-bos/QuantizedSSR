@@ -15,7 +15,7 @@ pyquaternion
 flowlib
 nuscenes-devkit==1.2.0
 
-# Modern OpenMMLab stack for newer Python
+# OpenMMLab
 mmengine
 mmcv-lite
 mmdet
