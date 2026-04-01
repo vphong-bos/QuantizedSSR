@@ -14,13 +14,7 @@ export TT_METAL_DISABLE_L1_DATA_CACHE_RISCVS="BR,NC,TR,ER"
 export TT_METAL_HOME="${REPO_ROOT}"
 export WORKING_DIR="${TT_METAL_HOME}/models/bos_model/ssr"
 export BOS_METAL_HOME="${TT_METAL_HOME}/tt_metal/third_party/bos-metal"
-export PY_DEPS_DIR="${TT_METAL_HOME}/python_env_ssr_pkgs"
-
-mkdir -p "${PY_DEPS_DIR}"
-
-# Make isolated packages come first
-export PYTHONNOUSERSITE=1
-export PYTHONPATH="${PY_DEPS_DIR}:${TT_METAL_HOME}:${BOS_METAL_HOME}:${WORKING_DIR}:SSR"
+export PYTHONPATH="${TT_METAL_HOME}:${BOS_METAL_HOME}:${WORKING_DIR}:SSR:${PYTHONPATH:-}"
 
 if [[ "${TT_METAL_ENABLE_DEBUG:-0}" -eq 1 ]]; then
   export TT_METAL_LOGGER_LEVEL="Debug"
@@ -34,93 +28,23 @@ echo "Python executable: $(which python)"
 python - <<'PY'
 import sys
 print("Python version:", sys.version)
-print("sys.path head:", sys.path[:8])
 PY
 
 export PIP_DISABLE_PIP_VERSION_CHECK=1
 export PIP_NO_INPUT=1
 export PIP_PROGRESS_BAR=off
-export PIP_PREFER_BINARY=1
 
-TARGET_FLAG=(--target "${PY_DEPS_DIR}" --upgrade --ignore-installed)
+echo "Upgrading pip..."
+python -m pip install -q --upgrade pip setuptools wheel
 
-echo "Installing isolated core stack into ${PY_DEPS_DIR} ..."
-python -m pip install -q "${TARGET_FLAG[@]}" \
-  "numpy==2.1.3" \
-  "requests>=2.32,<3" \
-  "tqdm>=4.67,<5" \
-  "filelock>=3.15" \
-  "opencv-python>=4.10,<5"
+echo "Installing requirements..."
+python -m pip install -q -r "${REQ_FILE}"
 
-echo "Checking torch from base runtime..."
-python - <<'PY'
-import sys
-try:
-    import torch
-    print("Torch found:", torch.__version__)
-except Exception as e:
-    print("Torch is not installed or not importable:", e)
-    sys.exit(1)
-PY
-
-REST_REQ="$(mktemp)"
-grep -vE '^[[:space:]]*(mmengine|mmcv|mmcv-lite|mmcv-full|mmdet|openmim|mim)([<>=!~].*)?$|^[[:space:]]*--find-links ' "${REQ_FILE}" > "${REST_REQ}"
-
-echo "Installing non-OpenMMLab requirements into isolated dir..."
-python -m pip install -q "${TARGET_FLAG[@]}" -r "${REST_REQ}"
-rm -f "${REST_REQ}"
-
-echo "Installing OpenMMLab packages into isolated dir..."
-python -m pip install -q "${TARGET_FLAG[@]}" \
-  "mmengine==0.10.7" \
-  "mmcv-lite==2.1.0" \
-  "mmdet==3.3.0"
-
-echo "Verifying imports from isolated dir..."
-python - <<'PY'
-import sys
-print("site path head:", sys.path[:8])
-
-import numpy
-import cv2
-import torch
-import mmengine
-import mmcv
-import mmdet
-
-print("numpy:", numpy.__version__)
-print("cv2:", cv2.__version__)
-print("torch:", torch.__version__)
-print("mmengine:", mmengine.__version__)
-print("mmcv:", mmcv.__version__)
-print("mmdet:", mmdet.__version__)
-print("mmcv file:", mmcv.__file__)
-PY
-
-echo "Writing runtime environment helper..."
-cat > "${WORKING_DIR}/env_runtime.sh" <<EOF
-#!/usr/bin/env bash
-export ARCH_NAME=blackhole
-export TT_METAL_DISABLE_L1_DATA_CACHE_RISCVS="BR,NC,TR,ER"
-export TT_METAL_HOME="${TT_METAL_HOME}"
-export WORKING_DIR="${WORKING_DIR}"
-export BOS_METAL_HOME="${BOS_METAL_HOME}"
-export PY_DEPS_DIR="${PY_DEPS_DIR}"
-export PYTHONNOUSERSITE=1
-export PYTHONPATH="${PY_DEPS_DIR}:${TT_METAL_HOME}:${BOS_METAL_HOME}:${WORKING_DIR}:SSR"
-if [[ "\${TT_METAL_ENABLE_DEBUG:-0}" -eq 1 ]]; then
-  export TT_METAL_LOGGER_LEVEL="Debug"
-  export TT_METAL_LOGGER_TYPES="Op"
-  export TT_METAL_DPRINT_CHIPS=0
-  export TT_METAL_DPRINT_CORES=0,0
-  export TTNN_TILIZE_FORCE_SINGLE_TILE_INTERLEAVED=1
-fi
-EOF
-chmod +x "${WORKING_DIR}/env_runtime.sh"
-
+# Move to working directory
 echo "Changing to WORKING_DIR: ${WORKING_DIR}"
 cd "${WORKING_DIR}"
 
+# Paths
 SSR_DIR="${SCRIPT_DIR}/ssr"
 REFERENCE_DIR="${SSR_DIR}/reference"
 DATA_DIR="${SCRIPT_DIR}/data"
@@ -150,4 +74,3 @@ ln -sfn "${DATA_DIR}/dataset" "${REFERENCE_DIR}/dataset"
 echo "Symlink created: ${REFERENCE_DIR}/dataset -> ${DATA_DIR}/dataset"
 
 echo "Setup complete."
-echo "Runtime helper written to: ${WORKING_DIR}/env_runtime.sh"
