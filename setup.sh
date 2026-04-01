@@ -4,27 +4,55 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQ_FILE="${SCRIPT_DIR}/requirements.txt"
 
-echo "Installing Python requirements..."
+echo "Setting up isolated Python environment..."
 
 export PIP_DISABLE_PIP_VERSION_CHECK=1
 export PIP_NO_INPUT=1
 export PIP_PROGRESS_BAR=off
 export PIP_PREFER_BINARY=1
 
-python -m pip install -q --upgrade pip setuptools wheel packaging
+# Create local venv with Python 3.10
+if [[ ! -d "${SCRIPT_DIR}/.venv" ]]; then
+  python3.10 -m venv "${SCRIPT_DIR}/.venv"
+fi
 
-# Split OpenMMLab packages from the rest.
+# Activate venv
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/.venv/bin/activate"
+
+python -m pip install -q --upgrade pip setuptools wheel
+
+PY_VER="$(python - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+)"
+
+if [[ "$PY_VER" != "3.10" ]]; then
+  echo "ERROR: venv is using Python ${PY_VER}, expected 3.10"
+  exit 1
+fi
+
+echo "Installing legacy OpenMMLab stack..."
+
+# Install torch first
+python -m pip install -q --prefer-binary \
+  torch==1.13.1 torchvision==0.14.1 \
+  --index-url https://download.pytorch.org/whl/cpu
+
+# Install prebuilt mmcv-full wheel
+python -m pip install -q --prefer-binary \
+  mmcv-full==1.7.2 \
+  -f https://download.openmmlab.com/mmcv/dist/cpu/torch1.13/index.html
+
+# Install mmdet
+python -m pip install -q --prefer-binary mmdet==2.26.0
+
+# Install everything else except OpenMMLab lines
 REST_REQ="$(mktemp)"
-grep -vE '^[[:space:]]*(mmengine|mmcv|mmdet)([<>=!~].*)?$' "${REQ_FILE}" > "${REST_REQ}"
+grep -vE '^[[:space:]]*(mmcv-full|mmcv|mmengine|mmdet)([<>=!~].*)?$' "${REQ_FILE}" > "${REST_REQ}"
 
-# Install everything else first.
 python -m pip install -q --prefer-binary -r "${REST_REQ}"
-
-# Install modern OpenMMLab stack without openmim.
-python -m pip install -q --prefer-binary mmengine
-python -m pip install -q --prefer-binary mmcv
-python -m pip install -q --prefer-binary mmdet
-
 rm -f "${REST_REQ}"
 
 # Move to working directory (if defined)
@@ -65,3 +93,4 @@ ln -sfn "${DATA_DIR}/dataset" "${REFERENCE_DIR}/dataset"
 echo "Symlink created: ${REFERENCE_DIR}/dataset -> ${DATA_DIR}/dataset"
 
 echo "Setup complete."
+echo "Activate later with: source ${SCRIPT_DIR}/.venv/bin/activate"
