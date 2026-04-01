@@ -27,8 +27,8 @@ from mmcv.runner import force_fp32, auto_fp16
 from scipy.optimize import linear_sum_assignment
 
 from mmcv.cnn.bricks.transformer import build_transformer_layer_sequence
-from reference.projects.mmdet3d_plugin.SSR.utils import builder
-from reference.projects.mmdet3d_plugin.SSR.planner.metric_stp3 import PlanningMetric
+from projects.mmdet3d_plugin.SSR.utils import builder
+from projects.mmdet3d_plugin.SSR.planner.metric_stp3 import PlanningMetric
 
 from .tokenlearner import TokenFuser
 import torch.nn.functional as F

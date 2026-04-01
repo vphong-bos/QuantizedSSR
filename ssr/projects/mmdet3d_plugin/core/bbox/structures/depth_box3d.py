@@ -2,13 +2,13 @@
 import numpy as np
 import torch
 
-from reference.projects.mmdet3d_plugin.core.points.base_points import BasePoints
-from reference.projects.mmdet3d_plugin.core.bbox.structures.base_box3d import BaseInstance3DBoxes
+from projects.mmdet3d_plugin.core.points.base_points import BasePoints
+from projects.mmdet3d_plugin.core.bbox.structures.base_box3d import BaseInstance3DBoxes
 # from ..core.points import BasePoints
 # from mmdet3d.ops.roiaware_pool3d import points_in_boxes_gpu
 # from mmdet3d.core.bbox.structures.base_box3d import BaseInstance3DBoxes
 # from mmdet3d.core.bbox.structures.utils import limit_period, rotation_3d_in_axis
-from reference.projects.mmdet3d_plugin.core.bbox.structures.utils import limit_period, rotation_3d_in_axis, points_in_boxes_cpu
+from projects.mmdet3d_plugin.core.bbox.structures.utils import limit_period, rotation_3d_in_axis, points_in_boxes_cpu
 
 
 class DepthInstance3DBoxes(BaseInstance3DBoxes):

@@ -6,13 +6,13 @@ from mmdet.datasets.builder import PIPELINES
 from mmdet.datasets.pipelines import to_tensor
 
 # from mmdet3d.core.bbox import BaseInstance3DBoxes
-from reference.projects.mmdet3d_plugin.core.bbox.structures.base_box3d import BaseInstance3DBoxes
+from projects.mmdet3d_plugin.core.bbox.structures.base_box3d import BaseInstance3DBoxes
 # from mmdet3d.core.points import BasePoints
-from reference.projects.mmdet3d_plugin.core.points.base_points import BasePoints
+from projects.mmdet3d_plugin.core.points.base_points import BasePoints
 from mmdet.datasets.builder import PIPELINES
 from mmdet.datasets.pipelines import to_tensor
 # from mmdet3d.datasets.pipelines import DefaultFormatBundle3D
-# from reference.projects.mmdet3d_plugin.datasets.pipelines import DefaultFormatBundle3D
+# from projects.mmdet3d_plugin.datasets.pipelines import DefaultFormatBundle3D
 PIPELINES._module_dict.pop('DefaultFormatBundle', None)
 
 @PIPELINES.register_module()

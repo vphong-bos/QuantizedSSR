@@ -27,7 +27,7 @@ import tqdm
 from nuscenes.utils.geometry_utils import view_points, box_in_image, BoxVisibility, transform_matrix
 from torchvision.transforms.functional import rotate
 import pycocotools.mask as mask_util
-# from reference.projects.mmdet3d_plugin.models.utils.visual import save_tensor
+# from projects.mmdet3d_plugin.models.utils.visual import save_tensor
 from torchvision.transforms.functional import rotate
 import cv2
 import argparse

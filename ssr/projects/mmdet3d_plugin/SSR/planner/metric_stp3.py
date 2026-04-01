@@ -6,7 +6,7 @@ import torch
 import cv2
 import copy
 import matplotlib.pyplot as plt
-from reference.projects.mmdet3d_plugin.core.evaluation.metric_motion import get_ade, get_fde
+from projects.mmdet3d_plugin.core.evaluation.metric_motion import get_ade, get_fde
 from skimage.draw import polygon
 from nuscenes.utils.data_classes import Box
 from scipy.spatial.transform import Rotation as R
