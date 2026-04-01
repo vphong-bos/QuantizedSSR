@@ -14,12 +14,13 @@ export TT_METAL_DISABLE_L1_DATA_CACHE_RISCVS="BR,NC,TR,ER"
 export TT_METAL_HOME="${REPO_ROOT}"
 export WORKING_DIR="${TT_METAL_HOME}/models/bos_model/ssr"
 export BOS_METAL_HOME="${TT_METAL_HOME}/tt_metal/third_party/bos-metal"
-
-# Install all Python packages into an isolated local dir instead of touching Kaggle system packages.
 export PY_DEPS_DIR="${TT_METAL_HOME}/python_env_ssr_pkgs"
+
 mkdir -p "${PY_DEPS_DIR}"
 
-export PYTHONPATH="${PY_DEPS_DIR}:${TT_METAL_HOME}:${BOS_METAL_HOME}:${WORKING_DIR}:SSR:${PYTHONPATH:-}"
+# Make isolated packages come first
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${PY_DEPS_DIR}:${TT_METAL_HOME}:${BOS_METAL_HOME}:${WORKING_DIR}:SSR"
 
 if [[ "${TT_METAL_ENABLE_DEBUG:-0}" -eq 1 ]]; then
   export TT_METAL_LOGGER_LEVEL="Debug"
@@ -33,7 +34,7 @@ echo "Python executable: $(which python)"
 python - <<'PY'
 import sys
 print("Python version:", sys.version)
-print("PYTHONPATH:", sys.path[:5])
+print("sys.path head:", sys.path[:8])
 PY
 
 export PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -49,7 +50,7 @@ python -m pip install -q "${TARGET_FLAG[@]}" \
   "requests>=2.32,<3" \
   "tqdm>=4.67,<5" \
   "filelock>=3.15" \
-  "opencv-python>=4.10"
+  "opencv-python>=4.10,<5"
 
 echo "Checking torch from base runtime..."
 python - <<'PY'
@@ -71,9 +72,9 @@ rm -f "${REST_REQ}"
 
 echo "Installing OpenMMLab packages into isolated dir..."
 python -m pip install -q "${TARGET_FLAG[@]}" \
-  "mmengine>=0.10.7,<1.0.0" \
-  "mmcv-lite>=2.1.0,<2.3.0" \
-  "mmdet>=3.3.0,<3.4.0"
+  "mmengine==0.10.7" \
+  "mmcv-lite==2.1.0" \
+  "mmdet==3.3.0"
 
 echo "Verifying imports from isolated dir..."
 python - <<'PY'
@@ -93,7 +94,29 @@ print("torch:", torch.__version__)
 print("mmengine:", mmengine.__version__)
 print("mmcv:", mmcv.__version__)
 print("mmdet:", mmdet.__version__)
+print("mmcv file:", mmcv.__file__)
 PY
+
+echo "Writing runtime environment helper..."
+cat > "${WORKING_DIR}/env_runtime.sh" <<EOF
+#!/usr/bin/env bash
+export ARCH_NAME=blackhole
+export TT_METAL_DISABLE_L1_DATA_CACHE_RISCVS="BR,NC,TR,ER"
+export TT_METAL_HOME="${TT_METAL_HOME}"
+export WORKING_DIR="${WORKING_DIR}"
+export BOS_METAL_HOME="${BOS_METAL_HOME}"
+export PY_DEPS_DIR="${PY_DEPS_DIR}"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${PY_DEPS_DIR}:${TT_METAL_HOME}:${BOS_METAL_HOME}:${WORKING_DIR}:SSR"
+if [[ "\${TT_METAL_ENABLE_DEBUG:-0}" -eq 1 ]]; then
+  export TT_METAL_LOGGER_LEVEL="Debug"
+  export TT_METAL_LOGGER_TYPES="Op"
+  export TT_METAL_DPRINT_CHIPS=0
+  export TT_METAL_DPRINT_CORES=0,0
+  export TTNN_TILIZE_FORCE_SINGLE_TILE_INTERLEAVED=1
+fi
+EOF
+chmod +x "${WORKING_DIR}/env_runtime.sh"
 
 echo "Changing to WORKING_DIR: ${WORKING_DIR}"
 cd "${WORKING_DIR}"
@@ -127,4 +150,4 @@ ln -sfn "${DATA_DIR}/dataset" "${REFERENCE_DIR}/dataset"
 echo "Symlink created: ${REFERENCE_DIR}/dataset -> ${DATA_DIR}/dataset"
 
 echo "Setup complete."
-echo "Isolated packages directory: ${PY_DEPS_DIR}"
+echo "Runtime helper written to: ${WORKING_DIR}/env_runtime.sh"
