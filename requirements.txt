@@ -1,0 +1,3 @@
+aimet-torch
+loguru
+onnxruntime-gpu==1.24.2
