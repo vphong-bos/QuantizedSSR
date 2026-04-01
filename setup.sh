@@ -2,11 +2,43 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 REQ_FILE="${SCRIPT_DIR}/requirements.txt"
 
 echo "Installing Python requirements..."
-python -m pip install -q -r "${REQ_FILE}"
+
+# Prefer wheels and reuse cache
+export PIP_DISABLE_PIP_VERSION_CHECK=1
+export PIP_NO_INPUT=1
+export PIP_PROGRESS_BAR=off
+export PIP_PREFER_BINARY=1
+
+python -m pip install -q --upgrade pip setuptools wheel
+
+# mmcv-full already covers mmcv use cases here, so skip plain mmcv to avoid duplicate work/conflicts.
+TMP_REQ="$(mktemp)"
+awk '
+  BEGIN { skip_mmcv=0 }
+  /^[[:space:]]*mmcv-full==/ { skip_mmcv=1; print; next }
+  /^[[:space:]]*mmcv==/ {
+    if (skip_mmcv == 1) next
+  }
+  { print }
+' "${REQ_FILE}" > "${TMP_REQ}"
+
+# Install OpenMMLab pieces first, forcing prebuilt wheels from the provided index.
+python -m pip install -q --prefer-binary \
+  --find-links https://download.openmmlab.com/mmcv/dist/cpu/torch2.1/index.html \
+  mmcv-full==1.7.2 \
+  mmengine==0.10.7 \
+  mmdet==2.26.0
+
+# Install the rest from requirements, excluding lines already handled above.
+REST_REQ="$(mktemp)"
+grep -vE '^[[:space:]]*(mmcv-full|mmcv|mmengine|mmdet)==|^[[:space:]]*--find-links ' "${TMP_REQ}" > "${REST_REQ}"
+
+python -m pip install -q --prefer-binary -r "${REST_REQ}"
+
+rm -f "${TMP_REQ}" "${REST_REQ}"
 
 # Move to working directory (if defined)
 if [[ -n "${WORKING_DIR:-}" ]]; then
