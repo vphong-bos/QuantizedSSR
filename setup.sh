@@ -1,29 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This script expects the shell to already have:
-#   source env_set.sh ssr
-# so that PYTHON_ENV_DIR / WORKING_DIR / TT_METAL_HOME are set.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+REQ_FILE="${SCRIPT_DIR}/requirements.txt"
+
+cd "${REPO_ROOT}"
+
+echo "Loading SSR environment..."
+# shellcheck disable=SC1091
+source "${REPO_ROOT}/env_set.sh" ssr
 
 if [[ -z "${TT_METAL_HOME:-}" ]]; then
-  echo "ERROR: TT_METAL_HOME is not set."
-  echo "Run: source env_set.sh ssr"
+  echo "ERROR: TT_METAL_HOME is not set after sourcing env_set.sh"
   exit 1
 fi
 
 if [[ -z "${PYTHON_ENV_DIR:-}" ]]; then
-  echo "ERROR: PYTHON_ENV_DIR is not set."
-  echo "Run: source env_set.sh ssr"
+  echo "ERROR: PYTHON_ENV_DIR is not set after sourcing env_set.sh"
   exit 1
 fi
 
 if [[ ! -f "${PYTHON_ENV_DIR}/bin/activate" ]]; then
-  echo "ERROR: Python environment not found at: ${PYTHON_ENV_DIR}"
+  echo "ERROR: Python environment not found at ${PYTHON_ENV_DIR}"
   exit 1
 fi
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REQ_FILE="${SCRIPT_DIR}/requirements.txt"
 
 echo "Activating Python environment: ${PYTHON_ENV_DIR}"
 # shellcheck disable=SC1090
@@ -54,7 +55,6 @@ except Exception as e:
     sys.exit(1)
 PY
 
-# Install non-OpenMMLab requirements first
 REST_REQ="$(mktemp)"
 grep -vE '^[[:space:]]*(mmengine|mmcv|mmcv-lite|mmcv-full|mmdet|openmim|mim)([<>=!~].*)?$|^[[:space:]]*--find-links ' "${REQ_FILE}" > "${REST_REQ}"
 
@@ -79,13 +79,11 @@ print("mmcv:", mmcv.__version__)
 print("mmdet:", mmdet.__version__)
 PY
 
-# Move to working directory if provided
 if [[ -n "${WORKING_DIR:-}" ]]; then
   echo "Changing to WORKING_DIR: $WORKING_DIR"
   cd "$WORKING_DIR"
 fi
 
-# Paths
 SSR_DIR="${SCRIPT_DIR}/ssr"
 REFERENCE_DIR="${SSR_DIR}/reference"
 DATA_DIR="${SCRIPT_DIR}/data"
