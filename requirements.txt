@@ -8,15 +8,13 @@ colorama
 pycocotools
 pytest-html
 openpyxl
-rich>=14.2.0 # compatible with textual
+rich>=14.2.0
 
 # Datasets
 pyquaternion
 flowlib
-nuscenes-devkit==1.2.0 # compatible with matplotlib>=3.6.0
+nuscenes-devkit==1.2.0
 
-mmdet==2.26.0
 mmengine==0.10.7
---find-links https://download.openmmlab.com/mmcv/dist/cpu/torch2.1/index.html
+mmdet==2.26.0
 mmcv-full==1.7.2
-mmcv==1.7.2
