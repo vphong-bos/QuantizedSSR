@@ -38,7 +38,7 @@ echo "Upgrading pip..."
 python -m pip install -q --upgrade pip setuptools wheel
 
 echo "Installing requirements..."
-python -m pip install -q -r "${REQ_FILE}"
+python -m pip install -q --no-deps -r "${REQ_FILE}"
 
 # Move to working directory
 echo "Changing to WORKING_DIR: ${WORKING_DIR}"
