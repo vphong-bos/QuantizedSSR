@@ -11,20 +11,19 @@ export PIP_NO_INPUT=1
 export PIP_PROGRESS_BAR=off
 export PIP_PREFER_BINARY=1
 
-python -m pip install -q --upgrade pip setuptools wheel
+python -m pip install -q --upgrade pip setuptools wheel packaging
 
-# Split OpenMMLab packages from the rest, so we can install them the recommended way.
+# Split OpenMMLab packages from the rest.
 REST_REQ="$(mktemp)"
-grep -vE '^[[:space:]]*(openmim|mmengine|mmcv|mmdet)([<=>].*)?$' "${REQ_FILE}" > "${REST_REQ}"
+grep -vE '^[[:space:]]*(mmengine|mmcv|mmdet)([<>=!~].*)?$' "${REQ_FILE}" > "${REST_REQ}"
 
-# Install the non-OpenMMLab packages first.
+# Install everything else first.
 python -m pip install -q --prefer-binary -r "${REST_REQ}"
 
-# Install OpenMMLab the modern way.
-python -m pip install -q --prefer-binary openmim
-python -m mim install -q mmengine
-python -m mim install -q "mmcv>=2.0.0"
-python -m pip install -q --prefer-binary "mmdet>=3.0.0"
+# Install modern OpenMMLab stack without openmim.
+python -m pip install -q --prefer-binary mmengine
+python -m pip install -q --prefer-binary mmcv
+python -m pip install -q --prefer-binary mmdet
 
 rm -f "${REST_REQ}"
 
@@ -49,10 +48,8 @@ cat "${SSR_DIR}"/data.zip.part-a* > "${SSR_DIR}/data.zip"
 echo "Unzipping data.zip to data directory..."
 unzip -q "${SSR_DIR}/data.zip" -d "$DATA_DIR"
 
-# Ensure dataset folder exists inside data
 mkdir -p "${DATA_DIR}/dataset"
 
-# Try to copy dataset from Kaggle
 if [[ -d "$KAGGLE_DATASET_DIR" ]]; then
   echo "Kaggle dataset found. Copying to ${DATA_DIR}/dataset ..."
   cp -r "${KAGGLE_DATASET_DIR}/." "${DATA_DIR}/dataset/"
@@ -63,7 +60,6 @@ else
   echo "https://github.com/bos-semi/tt-metal/blob/develop/models/bos_model/ssr/README.md"
 fi
 
-# Create symlink so ssr/reference can use the dataset too
 mkdir -p "$REFERENCE_DIR"
 ln -sfn "${DATA_DIR}/dataset" "${REFERENCE_DIR}/dataset"
 echo "Symlink created: ${REFERENCE_DIR}/dataset -> ${DATA_DIR}/dataset"
