@@ -82,3 +82,19 @@ print("mmcv path:", mmcv.__file__)
 PY
 
 echo "Setup complete."
+
+echo "Writing run helper..."
+cat > "${WORKING_DIR}/run_ssr.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export ARCH_NAME=blackhole
+export TT_METAL_DISABLE_L1_DATA_CACHE_RISCVS="BR,NC,TR,ER"
+export TT_METAL_HOME="${TT_METAL_HOME}"
+export WORKING_DIR="${WORKING_DIR}"
+export BOS_METAL_HOME="${BOS_METAL_HOME}"
+export PY_DEPS_DIR="${PY_DEPS_DIR}"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${PY_DEPS_DIR}:${TT_METAL_HOME}:${BOS_METAL_HOME}:${WORKING_DIR}:SSR"
+python ssr/run.py "\$@"
+EOF
+chmod +x "${WORKING_DIR}/run_ssr.sh"
