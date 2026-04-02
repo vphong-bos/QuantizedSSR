@@ -14,18 +14,23 @@ export PY_DEPS_DIR
 export PYTHONNOUSERSITE=1
 export PYTHONPATH="${PY_DEPS_DIR}:${REPO_ROOT}:${SSR_DIR}"
 
-echo "Installing core packages into isolated dir..."
+echo "Installing PyTorch 2.1 CPU stack..."
 python -m pip install -q --target "${PY_DEPS_DIR}" --upgrade --ignore-installed \
-  "numpy==2.1.3" \
-  "opencv-python>=4.10,<5" \
-  "requests>=2.32,<3" \
-  "tqdm>=4.67,<5" \
-  "filelock>=3.15" \
-  "mmengine==0.10.7" \
-  "mmcv-lite==2.1.0" \
-  "mmdet==3.3.0"
+  --index-url https://download.pytorch.org/whl/cpu \
+  "torch==2.1.0" \
+  "torchvision==0.16.0" \
+  "torchaudio==2.1.0"
 
-echo "Installing the rest without forcing resolver to solve everything together..."
+echo "Installing mmcv-full for torch2.1 CPU..."
+python -m pip install -q --target "${PY_DEPS_DIR}" --upgrade --ignore-installed \
+  -f https://download.openmmlab.com/mmcv/dist/cpu/torch2.1/index.html \
+  "mmcv-full==1.7.2"
+
+echo "Installing mmdet 2.26.0..."
+python -m pip install -q --target "${PY_DEPS_DIR}" --upgrade --ignore-installed \
+  "mmdet==2.26.0"
+
+echo "Installing the rest..."
 python -m pip install -q --target "${PY_DEPS_DIR}" --upgrade --ignore-installed \
   "ptflops" \
   "pydeps" \
@@ -46,16 +51,20 @@ python -m pip install -q --target "${PY_DEPS_DIR}" --upgrade --ignore-installed 
   "scikit-image==0.21.0" \
   "scikit-learn==1.3.2"
 
-echo "Installing nuscenes-devkit without dependency resolution..."
+echo "Installing nuscenes-devkit without resolver backtracking..."
 python -m pip install -q --target "${PY_DEPS_DIR}" --upgrade --ignore-installed --no-deps \
   "nuscenes-devkit==1.2.0"
 
 echo "Verifying imports..."
 python - <<'PY'
-import numpy, cv2, mmengine, mmcv, mmdet
-print("numpy:", numpy.__version__)
-print("cv2:", cv2.__version__)
-print("mmengine:", mmengine.__version__)
+import sys, os
+sys.path.insert(0, os.environ["PY_DEPS_DIR"])
+import torch, torchvision, torchaudio
+import mmcv, mmdet
+
+print("torch:", torch.__version__)
+print("torchvision:", torchvision.__version__)
+print("torchaudio:", torchaudio.__version__)
 print("mmcv:", mmcv.__version__)
 print("mmdet:", mmdet.__version__)
 print("mmcv file:", mmcv.__file__)
