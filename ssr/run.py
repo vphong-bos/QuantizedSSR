@@ -81,7 +81,8 @@ def build_dataset(cfg, default_args=None):
 
 
 def single_gpu_test(model,
-                    data_loader):
+                    data_loader, 
+                    max_samples = 20):
     
     model.eval()
     results = []
@@ -90,6 +91,9 @@ def single_gpu_test(model,
     
     try:
         for i, data in enumerate(data_loader):
+            if max_samples is not None and i >= max_samples:
+                break
+
             data = extract_data_from_container(data)
             with torch.no_grad():
                 result = model(return_loss=False, rescale=True, **data)
@@ -99,6 +103,7 @@ def single_gpu_test(model,
             batch_size = len(result)
             for _ in range(batch_size):
                 prog_bar.update()
+
     except KeyboardInterrupt:
         print('Keyboard interrupt, exiting...')
         
@@ -233,6 +238,7 @@ def parse_args():
         help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--return_model', type=int, default=0)
+    parser.add_argument('--max_samples', type=int, default=None)
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -359,7 +365,7 @@ def main():
     # model = MMDataParallel(model, device_ids=[0])
     if args.return_model:
         return model, dataset
-    outputs = single_gpu_test(model, data_loader)
+    outputs = single_gpu_test(model, data_loader, args.max_samples)
 
     tmp = {}
     tmp['bbox_results'] = outputs

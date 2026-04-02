@@ -29,7 +29,7 @@ python -m pip install -U "pip<25" "setuptools<81" wheel
 
 python -m pip install lazy_loader
 
-python -m pip install joblib threadpoolctl scipy tqdm cachetools loguru shapely descartes ipython
+python -m pip install joblib threadpoolctl scipy tqdm cachetools loguru shapely descartes ipython seaborn
 
 echo "Installing legacy-compatible numpy/opencv..."
 python -m pip install --force-reinstall --no-deps numpy==1.26.4
