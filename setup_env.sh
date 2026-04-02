@@ -6,28 +6,30 @@ SSR_DIR="${REPO_ROOT}/ssr"
 DATASET_SRC="/kaggle/input/datasets/vuthanhphong/ssr-dataset/dataset"
 DATA_DIR="${SSR_DIR}/data"
 DATASET_DST="${DATA_DIR}/dataset"
-PY39_ENV="/kaggle/working/py39_ssr"
+PY310_ENV="/kaggle/working/py310_ssr"
 
-echo "Installing Python 3.9..."
+echo "Installing Python 3.10..."
 apt-get update -y
 apt-get install -y software-properties-common
 add-apt-repository -y ppa:deadsnakes/ppa
 apt-get update -y
-apt-get install -y python3.9 python3.9-distutils python3.9-venv
+apt-get install -y python3.10 python3.10-distutils python3.10-venv
 
-echo "Installing pip for Python 3.9..."
+echo "Installing pip for Python 3.10..."
 curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-python3.9 /tmp/get-pip.py
+python3.10 /tmp/get-pip.py
 
 echo "Creating virtual environment..."
-rm -rf "${PY39_ENV}"
-python3.9 -m venv "${PY39_ENV}"
-source "${PY39_ENV}/bin/activate"
+rm -rf "${PY310_ENV}"
+python3.10 -m venv "${PY310_ENV}"
+source "${PY310_ENV}/bin/activate"
 
 echo "Installing base packaging tools..."
 python -m pip install -U "pip<25" "setuptools<81" wheel
 
 python -m pip install lazy_loader
+
+python -m pip install aimet-torch
 
 python -m pip install joblib threadpoolctl scipy tqdm cachetools loguru shapely descartes ipython seaborn
 
