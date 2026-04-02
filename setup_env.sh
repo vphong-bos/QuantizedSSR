@@ -96,33 +96,4 @@ print("mmdet:", mmdet.__version__)
 print("mmcv path:", mmcv.__file__)
 PY
 
-echo "Preparing SSR directory..."
-mkdir -p "${SSR_DIR}"
-
-echo "Reconstructing data.zip..."
-cd "${SSR_DIR}"
-rm -f data.zip
-cat data.zip.part-a* > data.zip
-
-echo "Unzipping data.zip..."
-unzip -o data.zip
-
-echo "Preparing dataset directory..."
-mkdir -p "${DATA_DIR}"
-
-if [[ -d "${DATASET_SRC}" ]]; then
-  echo "Copying dataset..."
-  rm -rf "${DATASET_DST}"
-  mkdir -p "${DATASET_DST}"
-  cp -r "${DATASET_SRC}/." "${DATASET_DST}/"
-  echo "Dataset copied to ${DATASET_DST}"
-else
-  echo "ERROR: Dataset source not found: ${DATASET_SRC}"
-  exit 1
-fi
-
 echo "Done."
-echo "To run later:"
-echo "source ${PY39_ENV}/bin/activate"
-echo "cd ${SSR_DIR}"
-echo "python run.py <args>"
