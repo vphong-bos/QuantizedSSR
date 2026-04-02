@@ -396,9 +396,6 @@ def main():
             eval_kwargs.update(dict(metric=args.eval, **kwargs))
 
             print("======================================================")
-            print("Here is the haha")
-            print(dataset)
-            print(outputs['bbox_results'])
             print(dataset.evaluate(outputs['bbox_results'], **eval_kwargs))
     
 if __name__ == '__main__':

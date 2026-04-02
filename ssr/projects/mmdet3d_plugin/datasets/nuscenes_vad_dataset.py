@@ -1476,50 +1476,79 @@ class VADCustomNuScenesDataset(NuScenesDataset):
             logger.debug(f'{self.map_ann_file} exist, not update')
 
     def _format_bbox(self, results, jsonfile_prefix=None, score_thresh=0.2, is_ttnn=False):
-        """Convert the results to the standard format.
+        """Convert the results to the standard format with debugging."""
+        logger.debug('**************** _format_bbox DEBUG START ****************')
+        logger.debug(f'type(results)={type(results)}')
+        logger.debug(f'len(results)={len(results) if isinstance(results, list) else "N/A"}')
+        logger.debug(f'jsonfile_prefix={jsonfile_prefix}')
+        logger.debug(f'is_ttnn={is_ttnn}')
 
-        Args:
-            results (list[dict]): Testing results of the dataset.
-            jsonfile_prefix (str): The prefix of the output jsonfile.
-                You can specify the output directory/filename by
-                modifying the jsonfile_prefix. Default: None.
-
-        Returns:
-            str: Path of the output json file.
-        """
         nusc_annos = {}
         det_mapped_class_names = self.CLASSES
-
-        # assert self.map_ann_file is not None
         map_pred_annos = {}
         map_mapped_class_names = self.MAPCLASSES
-
         plan_annos = {}
         plan_gts = {}
 
         logger.debug('Start to convert detection format...')
         for sample_id, det in enumerate(mmcv.track_iter_progress(results)):
-            annos = []
             sample_token = self.data_infos[sample_id]['token']
 
+            logger.debug(f'[sample_id={sample_id}] sample_token={sample_token}')
+            logger.debug(f'[sample_id={sample_id}] det type={type(det)}')
+
+            if isinstance(det, dict):
+                logger.debug(f'[sample_id={sample_id}] det keys={list(det.keys())}')
+            else:
+                logger.debug(f'[sample_id={sample_id}] det is not dict, value={det}')
+
+            if not isinstance(det, dict):
+                raise TypeError(f'_format_bbox expected dict per sample, got {type(det)} at sample {sample_id}')
+
+            if 'ego_fut_preds' not in det:
+                logger.debug(f'[sample_id={sample_id}] missing ego_fut_preds')
+            else:
+                try:
+                    logger.debug(f'[sample_id={sample_id}] ego_fut_preds shape={det["ego_fut_preds"].shape}')
+                except Exception:
+                    logger.debug(f'[sample_id={sample_id}] ego_fut_preds type={type(det["ego_fut_preds"])}')
+
+            if 'ego_fut_cmd' not in det:
+                logger.debug(f'[sample_id={sample_id}] missing ego_fut_cmd')
+            else:
+                try:
+                    logger.debug(f'[sample_id={sample_id}] ego_fut_cmd shape={det["ego_fut_cmd"].shape}')
+                except Exception:
+                    logger.debug(f'[sample_id={sample_id}] ego_fut_cmd type={type(det["ego_fut_cmd"])}')
+
+            if 'metric_results' in det:
+                logger.debug(f'[sample_id={sample_id}] metric_results keys={list(det["metric_results"].keys())}')
+
             plan_annos[sample_token] = [det['ego_fut_preds'], det['ego_fut_cmd']]
-            
-            plan_gts[sample_token] = [self.data_infos[sample_id]['gt_ego_fut_trajs'], self.data_infos[sample_id]['gt_ego_fut_cmd']]
+            plan_gts[sample_token] = [
+                self.data_infos[sample_id]['gt_ego_fut_trajs'],
+                self.data_infos[sample_id]['gt_ego_fut_cmd']
+            ]
+
+        logger.debug(f'len(plan_annos)={len(plan_annos)}')
+        logger.debug(f'len(plan_gts)={len(plan_gts)}')
 
         if not os.path.exists(self.map_ann_file):
+            logger.debug(f'map_ann_file missing, generating gt: {self.map_ann_file}')
             self._format_gt()
         else:
-            logger.debug(f'{self.map_ann_file} exist, not update')
-        # with open(self.map_ann_file,'r') as f:
-        #     GT_anns = json.load(f)
-        # gt_annos = GT_anns['GTs']
+            logger.debug(f'{self.map_ann_file} exists, not updating')
+
         result_key = f"plan_results_{'ttnn' if is_ttnn else 'torch'}"
         nusc_submissions = {
-            'meta'     : self.modality,
-            result_key : plan_annos,
-            'plan_gts' : plan_gts,
+            'meta': self.modality,
+            result_key: plan_annos,
+            'plan_gts': plan_gts,
             # 'GTs': gt_annos,
         }
+
+        logger.debug(f'nusc_submissions keys={list(nusc_submissions.keys())}')
+        logger.debug(f'result_key={result_key}')
 
         mmcv.mkdir_or_exist(jsonfile_prefix)
         suffix = 'ttnn' if is_ttnn else 'torch'
@@ -1527,8 +1556,14 @@ class VADCustomNuScenesDataset(NuScenesDataset):
             res_path = osp.join(jsonfile_prefix, f'{suffix}_results_nusc.pkl')
         else:
             res_path = osp.join(jsonfile_prefix, f'{suffix}_results_nusc.json')
-        logger.debug('Results writes to', res_path)
+
+        logger.debug(f'Results write path={res_path}')
         mmcv.dump(nusc_submissions, res_path)
+
+        # quick verification
+        logger.debug(f'Exists after dump? {osp.exists(res_path)}')
+
+        logger.debug('**************** _format_bbox DEBUG END ****************')
         return nusc_submissions, res_path
 
     def _format_bbox_realtime(self, results, is_ttnn=False, sample_idx=0):
@@ -1580,29 +1615,33 @@ class VADCustomNuScenesDataset(NuScenesDataset):
     
 
     def format_results(self, results, jsonfile_prefix=None, is_ttnn=False):
-        """Format the results to json (standard format for COCO evaluation).
+        """Format the results to json with debugging."""
+        logger.debug('---------------- format_results DEBUG ----------------')
+        logger.debug(f'input type(results)={type(results)}')
 
-        Args:
-            results (list[dict]): Testing results of the dataset.
-            jsonfile_prefix (str | None): The prefix of json files. It includes
-                the file path and the prefix of filename, e.g., "a/b/prefix".
-                If not specified, a temp file will be created. Default: None.
-
-        Returns:
-            tuple: Returns (result_files, tmp_dir), where `result_files` is a \
-                dict containing the json filepaths, `tmp_dir` is the temporal \
-                directory created for saving json files when \
-                `jsonfile_prefix` is not specified.
-        """
         if isinstance(results, dict):
-            # logger.debug(f'results must be a list, but get dict, keys={results.keys()}')
-            # assert isinstance(results, list)
+            logger.debug(f'results is dict with keys={list(results.keys())}')
             results = results['bbox_results']
-        assert isinstance(results, list)
-        # NOTE: Skip the assertion that checks the length of results
-        # assert len(results) == len(self), (
-        #     'The length of results is not equal to the dataset len: {} != {}'.
-        #     format(len(results), len(self)))
+            logger.debug(f'after unpack bbox_results: type={type(results)}, len={len(results)}')
+
+        assert isinstance(results, list), f'Expected list, got {type(results)}'
+        logger.debug(f'len(results)={len(results)}')
+
+        if len(results) == 0:
+            logger.debug('results is empty')
+            if jsonfile_prefix is None:
+                tmp_dir = tempfile.TemporaryDirectory()
+                jsonfile_prefix = osp.join(tmp_dir.name, 'results')
+            else:
+                tmp_dir = None
+            return {}, tmp_dir
+
+        if isinstance(results[0], dict):
+            logger.debug(f'results[0].keys()={list(results[0].keys())}')
+            for k, v in results[0].items():
+                logger.debug(f'results[0][{k}] type={type(v)}')
+                if isinstance(v, dict):
+                    logger.debug(f'results[0][{k}].keys()={list(v.keys())}')
 
         if jsonfile_prefix is None:
             tmp_dir = tempfile.TemporaryDirectory()
@@ -1610,25 +1649,40 @@ class VADCustomNuScenesDataset(NuScenesDataset):
         else:
             tmp_dir = None
 
-        # currently the output prediction results could be in two formats
-        # 1. list of dict('boxes_3d': ..., 'scores_3d': ..., 'labels_3d': ...)
-        # 2. list of dict('pts_bbox' or 'img_bbox':
-        #     dict('boxes_3d': ..., 'scores_3d': ..., 'labels_3d': ...))
-        # this is a workaround to enable evaluation of both formats on nuScenes
-        # refer to https://github.com/open-mmlab/mmdetection3d/issues/449
+        logger.debug(f'jsonfile_prefix={jsonfile_prefix}')
+        logger.debug(f'tmp_dir={tmp_dir}')
+
         if not ('pts_bbox' in results[0] or 'img_bbox' in results[0]):
+            logger.debug('No pts_bbox/img_bbox in results[0], calling _format_bbox directly')
             result_files = self._format_bbox(results, jsonfile_prefix, is_ttnn=is_ttnn)
         else:
-            # should take the inner dict out of 'pts_bbox' or 'img_bbox' dict
+            logger.debug('Found pts_bbox/img_bbox in results[0], entering nested formatting branch')
             result_files = dict()
+
             for name in results[0]:
                 if name == 'metric_results':
+                    logger.debug('Skipping top-level key metric_results')
                     continue
-                logger.debug(f'\nFormating bboxes of {name}')
+
+                logger.debug(f'Formatting top-level key: {name}')
                 results_ = [out[name] for out in results]
+                logger.debug(f'len(results_ for {name})={len(results_)}')
+                logger.debug(f'type(results_[0])={type(results_[0])}')
+
+                if isinstance(results_[0], dict):
+                    logger.debug(f'results_[0].keys() for {name} = {list(results_[0].keys())}')
+
                 tmp_file_ = osp.join(jsonfile_prefix, name)
-                result_files.update(
-                    {name: self._format_bbox(results_, tmp_file_, is_ttnn=is_ttnn)})
+                logger.debug(f'tmp_file_ for {name} = {tmp_file_}')
+
+                formatted = self._format_bbox(results_, tmp_file_, is_ttnn=is_ttnn)
+                logger.debug(f'_format_bbox return type for {name} = {type(formatted)}')
+                logger.debug(f'_format_bbox return value for {name} = {formatted}')
+
+                result_files[name] = formatted
+
+        logger.debug(f'format_results returning result_files={result_files}')
+        logger.debug('------------------------------------------------------')
         return result_files, tmp_dir
 
     def _evaluate_single(self,
