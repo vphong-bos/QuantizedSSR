@@ -386,17 +386,8 @@ def main():
             dataset.format_results(outputs['bbox_results'], **kwargs)
 
         if args.eval:
-            eval_kwargs = cfg.get('evaluation', {}).copy()
-            # hard-code way to remove EvalHook args
-            for key in [
-                    'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
-                    'rule'
-            ]:
-                eval_kwargs.pop(key, None)
-            eval_kwargs.update(dict(metric=args.eval, **kwargs))
-
             print("======================================================")
-            print(dataset.evaluate(outputs['bbox_results'], **eval_kwargs))
+            print(dataset.evaluate(outputs['bbox_results'], metric=args.eval))
     
 if __name__ == '__main__':
     main()
