@@ -53,8 +53,8 @@ from mmcv.utils import Registry, build_from_cfg
 from mmdet.apis import set_random_seed
 from mmdet.datasets import DATASETS, replace_ImageToTensor
 
-from projects.mmdet3d_plugin.datasets.builder import build_dataloader
-from projects.mmdet3d_plugin.SSR.utils.builder import build_model
+from ssr.projects.mmdet3d_plugin.datasets.builder import build_dataloader
+from ssr.projects.mmdet3d_plugin.SSR.utils.builder import build_model
 
 from aimet_common.defs import QuantScheme
 from aimet_common.utils import CallbackFunc
