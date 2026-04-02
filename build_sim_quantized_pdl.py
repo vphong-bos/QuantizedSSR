@@ -1,282 +1,177 @@
 #!/usr/bin/env python3
+"""
+AIMET PyTorch PTQ script for the MMDet/MMCV detector flow shown in the user's
+MMDet test script, rewritten to follow the structure and naming style of the
+user's AIMET PyTorch code.
+
+What is preserved from the detector code:
+- config/plugin import flow
+- build_dataset(cfg.data.test) + build_dataloader(...)
+- checkpoint loading with build_model(...)
+- DataContainer unpacking before inference
+- detector invocation pattern: model(return_loss=False, rescale=True, **data)
+
+What is borrowed from the AIMET PyTorch code style:
+- parse_args() layout and option names
+- explicit AIMET wrapper + forward callback functions
+- optional CLE / BN fold / SeqMSE / QuantAnalyzer hooks
+- QuantSim creation + compute_encodings + export flow
+
+Notes:
+- This is intentionally PyTorch/AIMET-first. For this detector stack, ONNX is
+  usually harder because the forward path depends on rich metadata in the batch.
+- AdaRound / bias correction are left as extension points unless your project
+  already has helper functions equivalent to the segmentation example.
+"""
+
 import argparse
-import os
 import copy
+import os
+import os.path as osp
+import random
+import sys
 import time
+import warnings
+from typing import Any, Dict, Iterable, List, Optional
 
+py_deps = os.environ.get("PY_DEPS_DIR")
+if py_deps:
+    if py_deps in sys.path:
+        sys.path.remove(py_deps)
+    sys.path.insert(0, py_deps)
+
+sys.path.append("")
+
+import mmcv
+import numpy as np
 import torch
+from mmcv import Config, DictAction
+from mmcv.cnn import fuse_conv_bn
+from mmcv.runner import get_dist_info, load_checkpoint, wrap_fp16_model
+from mmcv.utils import Registry, build_from_cfg
 
-from model.pdl import build_model
+from mmdet.apis import set_random_seed
+from mmdet.datasets import DATASETS, replace_ImageToTensor
 
-from quantization.calibration_dataset import (
-    create_calibration_loader,
-    sample_calibration_images,
-)
-from quantization.quantize_function import (
-    AimetTraceWrapper,
-    create_quant_sim,
-    calibration_forward_pass,
-)
-from quantization.bias_correction import apply_bias_correction, copy_biases
-from utils.image_loader import load_images
+from projects.mmdet3d_plugin.datasets.builder import build_dataloader
+from projects.mmdet3d_plugin.SSR.utils.builder import build_model
 
-from evaluation.eval_dataset import build_eval_loader
-from evaluation.eval_metrics import evaluate_model
-from secret_incrediants.fold_conv_bn import count_custom_conv_with_bn, fold_custom_conv_bn_inplace, debug_remaining_custom_conv_with_bn
-
-from aimet_torch.batch_norm_fold import fold_all_batch_norms, fold_all_batch_norms_to_scale
-from aimet_torch.cross_layer_equalization import equalize_model
-from aimet_torch.adaround.adaround_weight import Adaround, AdaroundParameters
-from aimet_torch.quant_analyzer import QuantAnalyzer
-from aimet_torch.seq_mse import apply_seq_mse, SeqMseParams
-from aimet_torch.bn_reestimation import reestimate_bn_stats
+from aimet_common.defs import QuantScheme
 from aimet_common.utils import CallbackFunc
-from aimet_torch import quantsim, onnx
+from aimet_torch.batch_norm_fold import fold_all_batch_norms
+from aimet_torch.cross_layer_equalization import equalize_model
+from aimet_torch.quant_analyzer import QuantAnalyzer
+from aimet_torch.quantsim import QuantizationSimModel
+from aimet_torch.seq_mse import SeqMseParams, apply_seq_mse
+from aimet_torch import onnx as aimet_onnx
 
-import torch
-from aimet_torch.v2.nn import QuantizationMixin
-from model.conv2d import Conv2d
-from model.quantized_conv2d import QuantizedConv2d
+warnings.filterwarnings("ignore")
 
-pdl_home_path = os.path.dirname(os.path.realpath(__file__))
-DEFAULT_WEIGHTS_PATH = os.path.join(pdl_home_path, "weights", "model_final_bd324a.pkl")
-DEFAULT_EXPORT_PATH = os.path.join(pdl_home_path, "quantized_export")
-DEFAULT_ANALYZER_PATH = os.path.join(pdl_home_path, "quant_analyzer_results")
+OBJECTSAMPLERS = Registry("Object sampler")
 
 
-def parse_args(argv=None):
-    parser = argparse.ArgumentParser()
+def build_dataset(cfg, default_args=None):
+    return build_from_cfg(cfg, DATASETS, default_args)
 
-    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--image_height", type=int, default=512, help="input image height")
-    parser.add_argument("--image_width", type=int, default=1024, help="input image width")
 
-    parser.add_argument(
-        "--weights_path",
-        type=str,
-        default=DEFAULT_WEIGHTS_PATH,
-        help="path to FP32 model weights",
-    )
-    parser.add_argument(
-        "--model_category",
-        type=str,
-        default="PANOPTIC_DEEPLAB",
-        choices=["DEEPLAB_V3_PLUS", "PANOPTIC_DEEPLAB"],
-        help="semantic-only or full panoptic model",
-    )
+# -----------------------------------------------------------------------------
+# Data handling from the detector script
+# -----------------------------------------------------------------------------
+def extract_data_from_container(data: Dict[str, Any]) -> Dict[str, Any]:
+    data = dict(data)
+    data["img_metas"] = data["img_metas"][0].data
+    data["gt_bboxes_3d"] = data["gt_bboxes_3d"][0].data
+    data["gt_labels_3d"] = data["gt_labels_3d"][0].data
+    data["img"] = data["img"][0].data
+    data["ego_his_trajs"] = data["ego_his_trajs"][0].data
+    data["ego_fut_trajs"] = data["ego_fut_trajs"][0].data
+    data["ego_fut_cmd"] = data["ego_fut_cmd"][0].data
+    data["ego_lcf_feat"] = data["ego_lcf_feat"][0].data
+    data["gt_attr_labels"] = data["gt_attr_labels"][0].data
+    data["map_gt_labels_3d"] = data["map_gt_labels_3d"].data[0]
+    data["map_gt_bboxes_3d"] = data["map_gt_bboxes_3d"].data[0]
+    return data
 
-    parser.add_argument(
-        "--calib_images",
-        type=str,
-        required=True,
-        help="image file or folder used for AIMET calibration",
-    )
 
-    parser.add_argument("--num_calib", type=int, default=800, help="number of calibration images")
-    parser.add_argument("--batch_size", type=int, default=1, help="AIMET calibration batch size")
-    parser.add_argument("--num_workers", type=int, default=2, help="dataloader workers")
-    parser.add_argument("--seed", type=int, default=123, help="random seed for calibration sampling")
+def move_to_device(obj: Any, device: torch.device) -> Any:
+    if torch.is_tensor(obj):
+        return obj.to(device, non_blocking=True)
+    if isinstance(obj, list):
+        return [move_to_device(x, device) for x in obj]
+    if isinstance(obj, tuple):
+        return tuple(move_to_device(x, device) for x in obj)
+    if isinstance(obj, dict):
+        return {k: move_to_device(v, device) for k, v in obj.items()}
+    return obj
 
-    parser.add_argument("--quant_scheme", type=str, default="tf_enhanced", help="AIMET quantization scheme")
-    parser.add_argument("--default_output_bw", type=int, default=8, help="activation bitwidth")
-    parser.add_argument("--default_param_bw", type=int, default=8, help="parameter bitwidth")
 
-    parser.add_argument(
-        "--save_quant_checkpoint",
-        type=str,
-        default=None,
-        help="optional path to save AIMET sim checkpoint",
-    )
+def prepare_batch(batch: Dict[str, Any], device: torch.device) -> Dict[str, Any]:
+    batch = extract_data_from_container(batch)
+    batch = move_to_device(batch, device)
+    return batch
 
-    parser.add_argument(
-        "--export_path",
-        type=str,
-        default=DEFAULT_EXPORT_PATH,
-        help="path to export quantized model",
-    )
-    parser.add_argument(
-        "--export_prefix",
-        type=str,
-        default="panoptic_deeplab_int8",
-        help="export filename prefix",
-    )
-    parser.add_argument("--no_export", action="store_true", help="skip AIMET export step")
 
-    parser.add_argument("--no_operation_orient", action="store_true", help="skip operation orient ONNX export step")
+# -----------------------------------------------------------------------------
+# AIMET wrappers / callbacks in the user's style
+# -----------------------------------------------------------------------------
+class AimetTraceWrapper(torch.nn.Module):
+    """
+    Wrap the detector so AIMET sees a conventional forward(img) API.
 
-    parser.add_argument(
-        "--config_file",
-        type=str,
-        default=None,
-        help="config file for quantized model",
-    )
+    The rest of the batch metadata is cached from the latest dataloader sample.
+    This mirrors your segmentation-side AimetTraceWrapper idea, but adapted to
+    detector inference where img is only one field of a larger batch dict.
+    """
 
-    parser.add_argument(
-        "--enable_cle",
-        dest="enable_cle",
-        action="store_true",
-        help="enable Cross-Layer Equalization before quantization",
-    )
-    parser.add_argument(
-        "--disable_cle",
-        dest="enable_cle",
-        action="store_false",
-        help="disable Cross-Layer Equalization",
-    )
-    parser.set_defaults(enable_cle=False)
+    def __init__(self, model: torch.nn.Module, initial_batch: Dict[str, Any]):
+        super().__init__()
+        self.model = model
+        self.runtime_batch = initial_batch
 
-    parser.add_argument(
-        "--enable_bn_fold",
-        action="store_true",
-        help="apply batch norm folding before creating QuantSim",
-    )
+    def set_batch(self, batch: Dict[str, Any]) -> None:
+        self.runtime_batch = batch
 
-    parser.add_argument(
-        "--enable_adaround",
-        action="store_true",
-        help="apply AIMET AdaRound before creating QuantSim",
-    )
-    parser.add_argument(
-        "--adaround_num_batches",
-        type=int,
-        default=1000,
-        help="number of calibration batches to use for AdaRound",
-    )
-    parser.add_argument(
-        "--adaround_num_iterations",
-        type=int,
-        default=10000,
-        help="number of iterations for AdaRound",
-    )
-    parser.add_argument(
-        "--adaround_path",
-        type=str,
-        default=None,
-        help="directory to save AdaRound encodings",
-    )
-    parser.add_argument(
-        "--adaround_prefix",
-        type=str,
-        default="adaround",
-        help="filename prefix for AdaRound encodings",
-    )
+    def forward(self, images: torch.Tensor):
+        batch = dict(self.runtime_batch)
+        batch["img"] = images
+        out = self.model(return_loss=False, rescale=True, **batch)
+        return self._make_traceable_output(out)
 
-    parser.add_argument(
-        "--enable_bias_correction",
-        action="store_true",
-        help="apply AIMET Bias Correction before creating QuantSim",
-    )
-    parser.add_argument(
-        "--bias_corr_num_quant_samples",
-        type=int,
-        default=256,
-        help="number of samples used to build temporary quant sim during bias correction",
-    )
-    parser.add_argument(
-        "--bias_corr_num_bias_samples",
-        type=int,
-        default=256,
-        help="number of samples used for bias correction",
-    )
-    parser.add_argument(
-        "--bias_corr_empirical_only",
-        action="store_true",
-        help="use empirical-only bias correction instead of analytical+empirical",
-    )
+    @staticmethod
+    def _make_traceable_output(out: Any):
+        if torch.is_tensor(out):
+            return out
 
-    parser.add_argument(
-        "--run_quant_analyzer",
-        action="store_true",
-        help="run AIMET QuantAnalyzer and save sensitivity reports",
-    )
-    parser.add_argument(
-        "--quant_analyzer_dir",
-        type=str,
-        default=DEFAULT_ANALYZER_PATH,
-        help="directory to save QuantAnalyzer outputs",
-    )
-    parser.add_argument(
-        "--analyzer_num_batches",
-        type=int,
-        default=None,
-        help="number of calibration batches for analyzer forward pass; default uses all",
-    )
-    parser.add_argument(
-        "--cityscapes_root",
-        type=str,
-        default=None,
-        help="Cityscapes root, required when --run_quant_analyzer is set",
-    )
-    parser.add_argument(
-        "--eval_split",
-        type=str,
-        default="val",
-        choices=["val", "test"],
-        help="evaluation split for QuantAnalyzer",
-    )
-    parser.add_argument(
-        "--eval_max_samples",
-        type=int,
-        default=-1,
-        help="max eval samples for QuantAnalyzer, -1 means full split",
-    )
+        if isinstance(out, dict):
+            tensor_dict = {k: v for k, v in out.items() if torch.is_tensor(v)}
+            if len(tensor_dict) == 1:
+                return next(iter(tensor_dict.values()))
+            if tensor_dict:
+                return tensor_dict
 
-    parser.add_argument(
-        "--enable_seq_mse",
-        action="store_true",
-        help="apply AIMET Sequential MSE on QuantSim before computing encodings",
-    )
-    parser.add_argument(
-        "--seq_mse_num_batches",
-        type=int,
-        default=64,
-        help="number of calibration batches to use for Sequential MSE",
-    )
-    parser.add_argument(
-        "--seq_mse_num_candidates",
-        type=int,
-        default=20,
-        help="number of candidate encodings for Sequential MSE search",
-    )
-    parser.add_argument(
-        "--seq_mse_inp_symmetry",
-        type=str,
-        default="symqt",
-        choices=["asym", "symfp", "symqt"],
-        help="input symmetry mode for Sequential MSE",
-    )
-    parser.add_argument(
-        "--seq_mse_loss_fn",
-        type=str,
-        default="mse",
-        choices=["mse", "l1", "sqnr"],
-        help="loss function for Sequential MSE",
-    )
+        if isinstance(out, (list, tuple)):
+            gathered = []
+            for item in out:
+                if torch.is_tensor(item):
+                    gathered.append(item)
+                elif isinstance(item, dict):
+                    for value in item.values():
+                        if torch.is_tensor(value):
+                            gathered.append(value)
+            if len(gathered) == 1:
+                return gathered[0]
+            if gathered:
+                return tuple(gathered)
 
-    parser.add_argument(
-        "--enable_bn_reestimation",
-        action="store_true",
-        help="re-estimate BN stats on quant sim model before export",
-    )
-    parser.add_argument(
-        "--bn_reest_num_batches",
-        type=int,
-        default=64,
-        help="number of calibration batches to use for BN re-estimation",
-    )
-
-    parser.add_argument(
-        "--enable_custom_conv_bn_fold",
-        action="store_true",
-        help="fold BatchNorm inside custom Conv2d(norm=...) wrappers before AIMET steps",
-    )
-
-    return parser.parse_args(argv)
+        raise RuntimeError(
+            "Model output does not expose tensors suitable for AIMET tracing. "
+            "You may need to wrap a deeper internal submodule for this model."
+        )
 
 
 def aimet_forward_fn(model, inputs):
     if isinstance(inputs, dict):
-        images = inputs["image"]
+        images = inputs["img"]
     elif isinstance(inputs, (list, tuple)):
         images = inputs[0]
     else:
@@ -285,379 +180,445 @@ def aimet_forward_fn(model, inputs):
     images = images.to(next(model.parameters()).device)
     return model(images)
 
-def analyzer_forward_pass(model, callback_args):
+
+@torch.no_grad()
+def run_model_on_batch(model: AimetTraceWrapper, batch: Dict[str, Any], device: torch.device):
+    batch = prepare_batch(batch, device)
+    model.set_batch(batch)
+    return model(batch["img"])
+
+
+@torch.no_grad()
+def calibration_forward_pass(model, callback_args):
     calib_loader, device, max_batches = callback_args
 
     model.eval()
-    with torch.no_grad():
-        for batch_idx, batch in enumerate(calib_loader):
-            if max_batches is not None and batch_idx >= max_batches:
-                break
+    for batch_idx, batch in enumerate(calib_loader):
+        _ = run_model_on_batch(model, batch, device)
+        if max_batches is not None and max_batches > 0 and batch_idx + 1 >= max_batches:
+            break
 
-            if isinstance(batch, dict):
-                images = batch["image"]
-            elif isinstance(batch, (list, tuple)):
-                images = batch[0]
-            else:
-                images = batch
 
-            images = images.to(device)
-            _ = model(images)
+def analyzer_forward_pass(model, callback_args):
+    calib_loader, device, max_batches = callback_args
+    calibration_forward_pass(model, (calib_loader, device, max_batches))
 
 
 def analyzer_eval_callback(model, callback_args):
-    eval_loader, model_category_const, device, max_samples = callback_args
+    eval_loader, device, max_batches = callback_args
+    model.eval()
 
-    results = evaluate_model(
-        model_obj=model,
-        model_category_const=model_category_const,
-        loader=eval_loader,
-        device=device,
-        max_samples=max_samples,
+    outputs = []
+    for batch_idx, batch in enumerate(eval_loader):
+        result = run_model_on_batch(model, batch, device)
+        if isinstance(result, list):
+            outputs.extend(result)
+        else:
+            outputs.append(result)
+        if max_batches is not None and max_batches > 0 and batch_idx + 1 >= max_batches:
+            break
+
+    # AIMET QuantAnalyzer expects a scalar score. We keep this generic by
+    # returning negative latency-free proxy if dataset.evaluate is unavailable.
+    dataset = eval_loader.dataset
+    try:
+        metrics = dataset.evaluate(outputs, metric=["bbox"])
+        if isinstance(metrics, dict) and metrics:
+            first_val = next(iter(metrics.values()))
+            return float(first_val)
+    except Exception as exc:
+        print(f"[WARN] analyzer_eval_callback dataset.evaluate failed: {exc}")
+
+    return float(len(outputs))
+
+
+# -----------------------------------------------------------------------------
+# Build helpers from the detector script
+# -----------------------------------------------------------------------------
+def import_plugin_modules(cfg: Config, config_path: str) -> None:
+    if cfg.get("custom_imports", None):
+        from mmcv.utils import import_modules_from_strings
+        import_modules_from_strings(**cfg["custom_imports"])
+
+    if hasattr(cfg, "plugin") and cfg.plugin:
+        import importlib
+        if hasattr(cfg, "plugin_dir"):
+            module_dir = os.path.dirname(cfg.plugin_dir).split("/")
+        else:
+            module_dir = os.path.dirname(config_path).split("/")
+
+        module_path = module_dir[0]
+        for m in module_dir[1:]:
+            module_path = module_path + "." + m
+        print("[INFO] Importing plugin module:", module_path)
+        importlib.import_module(module_path)
+
+
+def build_dataset_and_loader(cfg: Config):
+    samples_per_gpu = 1
+    if isinstance(cfg.data.test, dict):
+        cfg.data.test.test_mode = True
+        samples_per_gpu = cfg.data.test.pop("samples_per_gpu", 1)
+        if samples_per_gpu > 1:
+            cfg.data.test.pipeline = replace_ImageToTensor(cfg.data.test.pipeline)
+    elif isinstance(cfg.data.test, list):
+        for ds_cfg in cfg.data.test:
+            ds_cfg.test_mode = True
+        samples_per_gpu = max(ds_cfg.pop("samples_per_gpu", 1) for ds_cfg in cfg.data.test)
+        if samples_per_gpu > 1:
+            for ds_cfg in cfg.data.test:
+                ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
+
+    dataset = build_dataset(cfg.data.test)
+    data_loader = build_dataloader(
+        dataset,
+        samples_per_gpu=samples_per_gpu,
+        workers_per_gpu=cfg.data.workers_per_gpu,
+        dist=False,
+        shuffle=False,
+        nonshuffler_sampler=cfg.data.nonshuffler_sampler,
     )
-    return float(results["mIoU"])
+    return dataset, data_loader
 
 
+def build_fp32_model(cfg: Config, checkpoint_path: str):
+    cfg.model.pretrained = None
+    cfg.model.train_cfg = None
+
+    model = build_model(cfg.model, test_cfg=cfg.get("test_cfg"))
+    fp16_cfg = cfg.get("fp16", None)
+    if fp16_cfg is not None:
+        wrap_fp16_model(model)
+
+    checkpoint = load_checkpoint(model, checkpoint_path, map_location="cpu")
+    if "CLASSES" in checkpoint.get("meta", {}):
+        model.CLASSES = checkpoint["meta"]["CLASSES"]
+    if "PALETTE" in checkpoint.get("meta", {}):
+        model.PALETTE = checkpoint["meta"]["PALETTE"]
+    return model
+
+
+# -----------------------------------------------------------------------------
+# Evaluation helpers
+# -----------------------------------------------------------------------------
+@torch.no_grad()
+def run_eval(model: AimetTraceWrapper, data_loader, device: torch.device, max_batches: int = -1):
+    model.eval()
+    outputs = []
+    total = len(data_loader.dataset) if max_batches < 0 else min(len(data_loader.dataset), max_batches)
+    prog_bar = mmcv.ProgressBar(total)
+
+    for batch_idx, batch in enumerate(data_loader):
+        result = run_model_on_batch(model, batch, device)
+        if isinstance(result, list):
+            outputs.extend(result)
+            batch_size = len(result)
+        else:
+            outputs.append(result)
+            batch_size = 1
+
+        for _ in range(batch_size):
+            prog_bar.update()
+
+        if max_batches > 0 and batch_idx + 1 >= max_batches:
+            break
+
+    return outputs
+
+
+# -----------------------------------------------------------------------------
+# AIMET stages
+# -----------------------------------------------------------------------------
+def maybe_fuse_conv_bn(model: torch.nn.Module, enabled: bool) -> torch.nn.Module:
+    if not enabled:
+        print("Conv-BN fusion disabled")
+        return model
+
+    print("Applying mmcv fuse_conv_bn...")
+    return fuse_conv_bn(model)
+
+
+def maybe_run_bn_fold(wrapped_model: AimetTraceWrapper, dummy_input: torch.Tensor, enabled: bool) -> None:
+    if not enabled:
+        print("BN folding disabled")
+        return
+
+    print("Applying AIMET batch norm folding...")
+    try:
+        fold_all_batch_norms(
+            model=wrapped_model,
+            input_shapes=tuple(dummy_input.shape),
+            dummy_input=dummy_input,
+        )
+    except TypeError:
+        fold_all_batch_norms(
+            model=wrapped_model,
+            input_shapes=tuple(dummy_input.shape),
+        )
+
+
+def maybe_run_cle(wrapped_model: AimetTraceWrapper, dummy_input: torch.Tensor, enabled: bool) -> None:
+    if not enabled:
+        print("CLE disabled")
+        return
+
+    print("Applying Cross-Layer Equalization (CLE)...")
+    cle_start = time.time()
+    try:
+        equalize_model(
+            wrapped_model,
+            input_shapes=tuple(dummy_input.shape),
+            dummy_input=dummy_input,
+        )
+    except TypeError:
+        equalize_model(wrapped_model, dummy_input=dummy_input)
+    cle_time = time.time() - cle_start
+    print(f"CLE finished in {cle_time:.2f} s")
+
+
+def maybe_run_seq_mse(
+    wrapped_model: AimetTraceWrapper,
+    sim: QuantizationSimModel,
+    calib_loader,
+    enabled: bool,
+    num_batches: int,
+) -> None:
+    if not enabled:
+        print("Sequential MSE disabled")
+        return
+
+    print("Applying Sequential MSE...")
+    params = SeqMseParams(
+        num_batches=min(num_batches, len(calib_loader)),
+        forward_fn=aimet_forward_fn,
+    )
+
+    try:
+        apply_seq_mse(
+            model=wrapped_model,
+            sim=sim,
+            data_loader=calib_loader,
+            params=params,
+            modules_to_exclude=None,
+        )
+    except TypeError:
+        # Older AIMET variants may not accept sim/modules_to_exclude in the same way.
+        apply_seq_mse(
+            model=wrapped_model,
+            dummy_input=None,
+            data_loader=calib_loader,
+            params=params,
+            forward_fn=aimet_forward_fn,
+        )
+
+    print("Sequential MSE finished.")
+
+
+def maybe_run_quant_analyzer(
+    wrapped_model: AimetTraceWrapper,
+    dummy_input: torch.Tensor,
+    calib_loader,
+    enabled: bool,
+    quant_analyzer_dir: str,
+    analyzer_num_batches: Optional[int],
+    device: str,
+    eval_loader=None,
+    eval_max_batches: int = -1,
+) -> None:
+    if not enabled:
+        return
+
+    print("Running AIMET QuantAnalyzer...")
+    os.makedirs(quant_analyzer_dir, exist_ok=True)
+
+    forward_pass_callback = CallbackFunc(
+        analyzer_forward_pass,
+        func_callback_args=(calib_loader, torch.device(device), analyzer_num_batches),
+    )
+
+    eval_callback = None
+    if eval_loader is not None:
+        eval_callback = CallbackFunc(
+            analyzer_eval_callback,
+            func_callback_args=(eval_loader, torch.device(device), eval_max_batches),
+        )
+
+    analyzer = QuantAnalyzer(
+        model=wrapped_model,
+        dummy_input=dummy_input,
+        forward_pass_callback=forward_pass_callback,
+        eval_callback=eval_callback,
+        modules_to_ignore=None,
+    )
+
+    analyzer.analyze(
+        quant_scheme="tf_enhanced",
+        default_param_bw=8,
+        default_output_bw=8,
+        config_file=None,
+        results_dir=quant_analyzer_dir,
+    )
+
+
+def create_quant_sim(
+    model: AimetTraceWrapper,
+    device: str,
+    dummy_input: torch.Tensor,
+    quant_scheme: str,
+    default_output_bw: int,
+    default_param_bw: int,
+    config_file: Optional[str],
+):
+    scheme_map = {
+        "tf": QuantScheme.post_training_tf,
+        "tf_enhanced": QuantScheme.post_training_tf_enhanced,
+    }
+    selected_scheme = scheme_map.get(quant_scheme, QuantScheme.post_training_tf_enhanced)
+
+    sim = QuantizationSimModel(
+        model=model.to(device).eval(),
+        dummy_input=dummy_input,
+        quant_scheme=selected_scheme,
+        default_output_bw=default_output_bw,
+        default_param_bw=default_param_bw,
+        config_file=config_file,
+        in_place=False,
+    )
+    return sim
+
+
+# -----------------------------------------------------------------------------
+# CLI
+# -----------------------------------------------------------------------------
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--config", type=str, required=True, help="test config file path")
+    parser.add_argument("--checkpoint", type=str, required=True, help="checkpoint file")
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--work_dir", type=str, default="quantized_export")
+
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--deterministic", action="store_true")
+    parser.add_argument("--cfg-options", nargs="+", action=DictAction)
+
+    parser.add_argument("--quant_scheme", type=str, default="tf_enhanced", help="AIMET quantization scheme")
+    parser.add_argument("--default_output_bw", type=int, default=8, help="activation bitwidth")
+    parser.add_argument("--default_param_bw", type=int, default=8, help="parameter bitwidth")
+    parser.add_argument("--config_file", type=str, default=None, help="AIMET quantsim config file")
+
+    parser.add_argument("--calib_batches", type=int, default=32, help="number of calibration batches")
+    parser.add_argument("--eval_batches", type=int, default=-1, help="max eval batches, -1 means full set")
+    parser.add_argument("--eval_metric", type=str, nargs="+", default=["bbox"], help="dataset.evaluate metrics")
+
+    parser.add_argument("--run_fp32_eval", action="store_true", help="evaluate FP32 model")
+    parser.add_argument("--run_int8_eval", action="store_true", help="evaluate quant sim model")
+
+    parser.add_argument("--enable_cle", dest="enable_cle", action="store_true", help="enable CLE")
+    parser.add_argument("--disable_cle", dest="enable_cle", action="store_false", help="disable CLE")
+    parser.set_defaults(enable_cle=False)
+
+    parser.add_argument("--enable_bn_fold", action="store_true", help="apply AIMET BN fold")
+    parser.add_argument("--enable_seq_mse", action="store_true", help="apply AIMET SeqMSE")
+    parser.add_argument("--seq_mse_num_batches", type=int, default=8, help="batches for SeqMSE")
+
+    parser.add_argument("--fuse_conv_bn", action="store_true", help="apply mmcv fuse_conv_bn before AIMET")
+
+    parser.add_argument("--run_quant_analyzer", action="store_true", help="run AIMET QuantAnalyzer")
+    parser.add_argument("--quant_analyzer_dir", type=str, default="quant_analyzer_results")
+    parser.add_argument("--analyzer_num_batches", type=int, default=None)
+
+    parser.add_argument("--save_quant_checkpoint", type=str, default=None, help="optional torch save path for sim")
+    parser.add_argument("--export_prefix", type=str, default="vad_detector_int8")
+    parser.add_argument("--no_export", action="store_true", help="skip AIMET export")
+    parser.add_argument("--export_onnx", action="store_true", help="also export AIMET QDQ ONNX")
+
+    return parser.parse_args(argv)
+
+
+# -----------------------------------------------------------------------------
+# Main
+# -----------------------------------------------------------------------------
 def main(args):
-    if args.batch_size < 1:
-        raise ValueError("batch_size must be >= 1")
-
-    if args.enable_seq_mse and args.enable_adaround:
-        raise ValueError("Enable either --enable_seq_mse or --enable_adaround, not both.")
+    os.makedirs(args.work_dir, exist_ok=True)
 
     if args.save_quant_checkpoint is not None:
         save_dir = os.path.dirname(args.save_quant_checkpoint)
         if save_dir:
             os.makedirs(save_dir, exist_ok=True)
 
-    os.makedirs(args.export_path, exist_ok=True)
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(args.seed)
+        set_random_seed(args.seed, deterministic=args.deterministic)
 
-    if args.adaround_path is None:
-        args.adaround_path = args.export_path
-    os.makedirs(args.adaround_path, exist_ok=True)
+    cfg = Config.fromfile(args.config)
+    if args.cfg_options is not None:
+        cfg.merge_from_dict(args.cfg_options)
 
-    eval_loader = None
-    if args.run_quant_analyzer:
-        if args.cityscapes_root is None:
-            raise ValueError("--cityscapes_root is required when --run_quant_analyzer is set")
+    import_plugin_modules(cfg, args.config)
 
-        print("Building evaluation loader for QuantAnalyzer...")
-        eval_loader = build_eval_loader(
-            cityscapes_root=args.cityscapes_root,
-            split=args.eval_split,
-            image_width=args.image_width,
-            image_height=args.image_height,
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
-        )
+    if cfg.get("cudnn_benchmark", False):
+        torch.backends.cudnn.benchmark = True
+
+    print("Building dataset / dataloader...")
+    dataset, data_loader = build_dataset_and_loader(copy.deepcopy(cfg))
 
     print("Loading FP32 model...")
-    model, model_category_const = build_model(
-        weights_path=args.weights_path,
-        model_category=args.model_category,
-        image_height=args.image_height,
-        image_width=args.image_width,
-        device=args.device,
-    )
+    model = build_fp32_model(cfg, args.checkpoint)
+    model = maybe_fuse_conv_bn(model, args.fuse_conv_bn)
     model = model.to(args.device).eval()
-    dummy_input = torch.randn(1, 3, args.image_height, args.image_width, device=args.device)
 
-    if args.enable_custom_conv_bn_fold:
-        before_count, before_names = count_custom_conv_with_bn(model)
-        print(f"[INFO] Custom Conv+BN before folding: {before_count}")
-
-        folded, skipped = fold_custom_conv_bn_inplace(model)
-        print(f"[INFO] Folded count : {folded}")
-        print(f"[INFO] Skipped count: {skipped}")
-
-        after_count, after_names = count_custom_conv_with_bn(model)
-        print(f"[INFO] Custom Conv+BN after folding: {after_count}")
-
-        if after_count > 0:
-            print("[INFO] Remaining modules with BN:")
-            for n in after_names[:50]:
-                print("  ", n)
-
-            debug_remaining_custom_conv_with_bn(model, max_items=20)
-
-
-    torch.onnx.export(
-        model,
-        dummy_input,
-        "model_fp32.onnx",
-        input_names=["input"],
-        output_names=["output"],
-        opset_version=20,
-        do_constant_folding=True,
-        dynamo=False,
-    )
-
-
-    print("Collecting calibration images...")
-    all_calib_images = load_images(args.calib_images, num_iters=-1, recursive=True)
-    calib_images = sample_calibration_images(all_calib_images, args.num_calib, args.seed)
-    print(f"Found {len(all_calib_images)} candidate calibration images")
-    print(f"Using {len(calib_images)} images for calibration")
-
-    calib_loader = create_calibration_loader(
-        calib_image_paths=calib_images,
-        image_width=args.image_width,
-        image_height=args.image_height,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-    )
-
-    if args.enable_cle:
-        print("Applying Cross-Layer Equalization (CLE)...")
-        cle_start = time.time()
-
-        model = model.to(args.device).eval()
-
-        cle_wrapper = AimetTraceWrapper(
-            model=model,
-            model_category_const=model_category_const,
-        ).to(args.device).eval()
-
-        equalize_model(
-            cle_wrapper,
-            input_shapes=(1, 3, args.image_height, args.image_width),
-            dummy_input=dummy_input,
-        )
-
-        model = model.to(args.device).eval()
-        cle_time = time.time() - cle_start
-        print(f"CLE finished in {cle_time:.2f} s")
-    else:
-        print("CLE disabled")
+    first_batch = next(iter(data_loader))
+    prepared_batch = prepare_batch(first_batch, torch.device(args.device))
+    dummy_input = prepared_batch["img"]
 
     print("Wrapping model for AIMET tracing...")
-    wrapped_model = AimetTraceWrapper(
-        model=model,
-        model_category_const=model_category_const,
-    ).to(args.device).eval()
-    wrapped_model = wrapped_model.to(args.device).eval()
+    wrapped_model = AimetTraceWrapper(model=model, initial_batch=prepared_batch).to(args.device).eval()
 
-    EXCLUDE_LAYERS = {
-        "model.semantic_head.decoder.res5.project_conv.convs.0",
-        "model.semantic_head.decoder.res5.project_conv.convs.4.1",
-        "model.instance_head.decoder.res5.project_conv.convs.0",
-        "model.instance_head.decoder.res5.project_conv.convs.4.1",
-    }
+    maybe_run_cle(wrapped_model, dummy_input, args.enable_cle)
+    maybe_run_bn_fold(wrapped_model, dummy_input, args.enable_bn_fold)
 
-    excluded_modules = [
-        # "model.instance_head.offset_predictor.Conv",
-        # "model.instance_head.Resize",
-    ]
-    for name, module in wrapped_model.named_modules():
-        if name in EXCLUDE_LAYERS:
-            print(f"Ignoring SeqMSE, AdaRound for: {name} {module} {module.__class__}")
-            excluded_modules.append(module)
+    if args.run_fp32_eval:
+        print("Running FP32 evaluation...")
+        fp32_outputs = run_eval(wrapped_model, data_loader, torch.device(args.device), args.eval_batches)
+        fp32_metrics = dataset.evaluate(fp32_outputs, metric=args.eval_metric)
+        print("[FP32]", fp32_metrics)
 
-    if args.enable_bn_fold:
-        print("Applying batch norm folding...")
-        # dummy_input_cpu = torch.randn(1, 3, args.image_height, args.image_width, device="cpu")
-
-        fold_all_batch_norms(
-            model=wrapped_model,
-            input_shapes=(1, 3, args.image_height, args.image_width),
-            dummy_input=dummy_input,
-        )
-    else:
-        print("BN folding disabled")
-
-    if args.enable_bias_correction:
-        print("Applying Bias Correction...")
-        bc_start = time.time()
-
-        bc_model = copy.deepcopy(wrapped_model).to(args.device).eval()
-
-        bc_model = apply_bias_correction(
-            model=bc_model,
-            calib_loader=calib_loader,
-            image_height=args.image_height,
-            image_width=args.image_width,
-            quant_scheme=args.quant_scheme,
-            default_param_bw=args.default_param_bw,
-            default_output_bw=args.default_output_bw,
-            config_file=args.config_file,
-            bias_corr_num_quant_samples=args.bias_corr_num_quant_samples,
-            bias_corr_num_bias_samples=args.bias_corr_num_bias_samples,
-            bias_corr_empirical_only=args.bias_corr_empirical_only,
-        )
-
-        copy_biases(bc_model, wrapped_model)
-        del bc_model
-
-        bc_time = time.time() - bc_start
-        print(f"Bias Correction finished in {bc_time:.2f} s")
-    else:
-        print("Bias Correction disabled")
-
-    adaround_encoding_path = None
-
-    if args.enable_adaround:
-        print("Applying AdaRound...")
-
-        adaround_params = AdaroundParameters(
-            data_loader=calib_loader,
-            num_batches=min(args.adaround_num_batches, len(calib_loader)),
-            default_num_iterations=args.adaround_num_iterations,
-            forward_fn=aimet_forward_fn,
-        )
-
-        # problem_layers = []
-
-        # for name, module in wrapped_model.named_modules():
-        #     in_ch = getattr(module, "in_channels", None)
-        #     out_ch = getattr(module, "out_channels", None)
-        #     kernel = getattr(module, "kernel_size", None)
-        #     stride = getattr(module, "stride", None)
-
-        #     if (
-        #         in_ch == 2048
-        #         and out_ch == 256
-        #         and kernel == (1, 1)
-        #         and stride == (1, 1)
-        #     ):
-        #         print("Ignoring AdaRound for:", name, module, module.__class__)
-        #         problem_layers.append(module)
-
-        # Run AdaRound on a temporary copy / instance only to generate encodings
-        adaround_model = wrapped_model.to(args.device).eval()
-
-        _ = Adaround.apply_adaround(
-            model=adaround_model,
-            dummy_input=dummy_input,
-            params=adaround_params,
-            path=args.adaround_path,
-            filename_prefix=args.adaround_prefix,
-            default_param_bw=args.default_param_bw,
-            default_quant_scheme=args.quant_scheme,
-            default_config_file=args.config_file,
-            ignore_quant_ops_list=excluded_modules,
-        )
-
-        adaround_encoding_path = os.path.join(
-            args.adaround_path,
-            f"{args.adaround_prefix}.encodings"
-        )
-
-        print(f"AdaRound finished. Encodings saved to: {adaround_encoding_path}")
-
-        wrapped_model = AimetTraceWrapper(
-            model=model,
-            model_category_const=model_category_const,
-        ).to(args.device).eval()
-    else:
-        print("AdaRound disabled")
-
-    if args.run_quant_analyzer:
-        print("Running AIMET QuantAnalyzer...")
-        os.makedirs(args.quant_analyzer_dir, exist_ok=True)
-
-        dummy_input = torch.randn(
-            1, 3, args.image_height, args.image_width, device=args.device
-        )
-
-        forward_pass_callback = CallbackFunc(
-            analyzer_forward_pass,
-            func_callback_args=(calib_loader, args.device, args.analyzer_num_batches),
-        )
-
-        eval_callback = CallbackFunc(
-            analyzer_eval_callback,
-            func_callback_args=(
-                eval_loader,
-                model_category_const,
-                args.device,
-                args.eval_max_samples,
-            ),
-        )
-
-        analyzer = QuantAnalyzer(
-            model=wrapped_model,
-            dummy_input=dummy_input,
-            forward_pass_callback=forward_pass_callback,
-            eval_callback=eval_callback,
-            modules_to_ignore=None,
-        )
-
-        analyzer.analyze(
-            quant_scheme=args.quant_scheme,
-            default_param_bw=args.default_param_bw,
-            default_output_bw=args.default_output_bw,
-            config_file=args.config_file,
-            results_dir=args.quant_analyzer_dir,
-        )
-
-        # print(f"QuantAnalyzer results saved to: {args.quant_analyzer_dir}")
-
-    skip_layer_names = [
-        # "model.backbone.stem.conv1",
-        # "model.backbone.stem.conv1.norm",
-        # "model.backbone.stem.conv2",
-        # "model.backbone.stem.conv2.norm",
-        # "model.backbone.stem.conv3",
-    ]
+    maybe_run_quant_analyzer(
+        wrapped_model=wrapped_model,
+        dummy_input=dummy_input,
+        calib_loader=data_loader,
+        enabled=args.run_quant_analyzer,
+        quant_analyzer_dir=osp.join(args.work_dir, args.quant_analyzer_dir),
+        analyzer_num_batches=args.analyzer_num_batches,
+        device=args.device,
+        eval_loader=data_loader if args.run_fp32_eval else None,
+        eval_max_batches=args.eval_batches,
+    )
 
     print("Creating AIMET QuantizationSimModel...")
-    sim, _ = create_quant_sim(
+    sim = create_quant_sim(
         model=wrapped_model,
-        model_category_const=model_category_const,
         device=args.device,
-        image_height=args.image_height,
-        image_width=args.image_width,
+        dummy_input=dummy_input,
         quant_scheme=args.quant_scheme,
         default_output_bw=args.default_output_bw,
         default_param_bw=args.default_param_bw,
         config_file=args.config_file,
-        skip_layer_names=skip_layer_names
     )
 
-    if adaround_encoding_path is not None:
-        print(f"Loading AdaRound parameter encodings from: {adaround_encoding_path}")
-        sim.set_and_freeze_param_encodings(adaround_encoding_path)
-
     if args.enable_seq_mse:
-        print("Applying Sequential MSE...")
-
-        seq_mse_num_batches = min(args.seq_mse_num_batches, len(calib_loader))
-
-        seq_mse_params = SeqMseParams(
-            num_batches=seq_mse_num_batches,
-            num_candidates=args.seq_mse_num_candidates,
-            inp_symmetry=args.seq_mse_inp_symmetry,
-            loss_fn=args.seq_mse_loss_fn,
-            forward_fn=aimet_forward_fn,
-        )
-
-        # Reuse the same exclusion list you built for problematic layers if needed.
-        # seq_mse_excluded_modules = []
-        # for name, module in wrapped_model.named_modules():
-        #     in_ch = getattr(module, "in_channels", None)
-        #     out_ch = getattr(module, "out_channels", None)
-        #     kernel = getattr(module, "kernel_size", None)
-        #     stride = getattr(module, "stride", None)
-
-        #     if (
-        #         in_ch == 2048
-        #         and out_ch == 256
-        #         and kernel == (1, 1)
-        #         and stride == (1, 1)
-        #     ):
-        #         print("Ignoring SeqMSE for:", name, module, module.__class__)
-        #         seq_mse_excluded_modules.append(module)
-
-        apply_seq_mse(
-            model=wrapped_model,
+        maybe_run_seq_mse(
+            wrapped_model=wrapped_model,
             sim=sim,
-            data_loader=calib_loader,
-            params=seq_mse_params,
-            # modules_to_exclude=excluded_modules if excluded_modules else None,
-            modules_to_exclude=None,
+            calib_loader=data_loader,
+            enabled=True,
+            num_batches=args.seq_mse_num_batches,
         )
-
-        print("Sequential MSE finished.")
     else:
         print("Sequential MSE disabled")
 
@@ -665,95 +626,54 @@ def main(args):
     calib_start = time.time()
     sim.compute_encodings(
         forward_pass_callback=calibration_forward_pass,
-        forward_pass_callback_args=(calib_loader, args.device),
+        forward_pass_callback_args=(data_loader, torch.device(args.device), args.calib_batches),
     )
     calib_time = time.time() - calib_start
     print(f"Calibration finished in {calib_time:.2f} s")
 
-    if args.enable_bn_reestimation:
-        print("Applying BatchNorm re-estimation...")
-        bn_start = time.time()
-
-        bn_reest_num_batches = min(args.bn_reest_num_batches, len(calib_loader))
-
-        reestimate_bn_stats(
-            sim.model,
-            calib_loader,
-            num_batches=bn_reest_num_batches,
-            forward_fn=aimet_forward_fn,
-        )
-
-        # Fold BN effect into quantization scales on the sim
-        fold_all_batch_norms_to_scale(sim)
-
-        bn_time = time.time() - bn_start
-        print(f"BN re-estimation finished in {bn_time:.2f} s")
-    else:
-        print("BN re-estimation disabled")
-
-    quantized_model = sim.model
-    quantized_model.eval()
+    if args.run_int8_eval:
+        print("Running INT8-sim evaluation...")
+        int8_outputs = run_eval(sim.model, data_loader, torch.device(args.device), args.eval_batches)
+        int8_metrics = dataset.evaluate(int8_outputs, metric=args.eval_metric)
+        print("[INT8]", int8_metrics)
 
     if args.save_quant_checkpoint is not None:
-        import pickle
-
-        with open(args.save_quant_checkpoint, "wb") as f:
-            pickle.dump(sim, f)
-
+        torch.save(sim, args.save_quant_checkpoint)
         print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
-    from aimet_torch import onnx as aimet_onnx
 
     if not args.no_export:
-        print("Exporting quantized model to ONNX QDQ...")
-        sim.model.to(args.device).eval()
+        export_dir = osp.join(args.work_dir, args.export_prefix)
+        os.makedirs(export_dir, exist_ok=True)
 
-        # cpu_dummy_input = torch.randn(
-        #     1, 3, args.image_height, args.image_width, device="cpu"
-        # )
-
-        os.makedirs(args.export_path, exist_ok=True)
-        onnx_path = os.path.join(args.export_path, f"{args.export_prefix}.onnx")
-
-        aimet_onnx.export(
-            sim.model,
-            dummy_input,
-            onnx_path,
-            input_names=["input"],
-            output_names=["output"],
-            opset_version=20,
-            export_int32_bias=True,
-            prequantize_constants=True,
-            dynamo=False,   # AIMET says dynamo=True is not supported here
+        print(f"Exporting AIMET artifacts to: {export_dir}")
+        sim.export(
+            path=export_dir,
+            filename_prefix=args.export_prefix,
+            dummy_input=dummy_input,
         )
 
-        print(f"Exported QDQ ONNX to: {onnx_path}")
+        if args.export_onnx:
+            onnx_path = osp.join(export_dir, f"{args.export_prefix}.onnx")
+            print("Exporting quantized model to ONNX QDQ...")
+            aimet_onnx.export(
+                sim.model,
+                dummy_input,
+                onnx_path,
+                input_names=["input"],
+                output_names=["output"],
+                opset_version=20,
+                export_int32_bias=True,
+                prequantize_constants=True,
+                dynamo=False,
+            )
+            print(f"Exported QDQ ONNX to: {onnx_path}")
+    else:
+        print("Export disabled")
 
-    # if not args.no_operation_orient:
-    #     print("Exporting operation orient quantized model to ONNX QDQ...")
-    #     sim.model.cpu().eval()
+    rank, _ = get_dist_info()
+    if rank == 0:
+        print("Done.")
 
-    #     cpu_dummy_input = torch.randn(
-    #         1, 3, args.image_height, args.image_width, device="cpu"
-    #     )
-
-    #     os.makedirs(args.export_path, exist_ok=True)
-    #     onnx_path = os.path.join(args.export_path, f"{args.export_prefix}_operation_orient.onnx")
-
-    #     onnx.export(
-    #         sim.model,                 
-    #         cpu_dummy_input,
-    #         onnx_path,
-    #         input_names=["input"],
-    #         output_names=["output"],
-    #         opset_version=21,
-    #         export_int32_bias=True,
-    #         dynamo=False,
-    #         operator_export_type=torch.onnx.OperatorExportTypes.ONNX,
-    #     )
-
-    #     print(f"Exported QDQ ONNX to: {onnx_path}")
-
-    print("Done.")
 
 if __name__ == "__main__":
     args = parse_args()
