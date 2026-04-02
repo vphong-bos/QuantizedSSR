@@ -33,4 +33,22 @@ else
   exit 1
 fi
 
+echo "Moving nuscenes info files (safe)..."
+
+NUSC_DIR="${DATASET_DST}/nuscenes"
+
+mkdir -p "${NUSC_DIR}"
+
+for f in vad_nuscenes_infos_temporal_*.pkl; do
+  if [[ -f "${DATA_DIR}/${f}" ]]; then
+    echo "Moving ${f} → nuscenes/"
+    mv "${DATA_DIR}/${f}" "${NUSC_DIR}/"
+  else
+    echo "Skipping ${f} (not found)"
+  fi
+done
+
+echo "Final nuscenes directory:"
+ls -lh "${NUSC_DIR}" || true
+
 echo "Done."
