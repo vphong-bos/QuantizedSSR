@@ -1,83 +1,93 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="${SCRIPT_DIR}"
-REQ_FILE="${SCRIPT_DIR}/requirements.txt"
-PY_DEPS_DIR="${SCRIPT_DIR}/python_env_ssr_pkgs"
+REPO_ROOT="/kaggle/working/QuantizedSSR"
+SSR_DIR="${REPO_ROOT}/ssr"
+PY_DEPS_DIR="${REPO_ROOT}/python_env_ssr_pkgs"
+DATASET_SRC="/kaggle/input/datasets/vuthanhphong/ssr-dataset/dataset"
+DATASET_DST="${SSR_DIR}/data/dataset"
+
+echo "Repo root: ${REPO_ROOT}"
+echo "SSR dir: ${SSR_DIR}"
+echo "Python deps dir: ${PY_DEPS_DIR}"
 
 cd "${REPO_ROOT}"
-
-echo "Setting Python environment..."
 
 mkdir -p "${PY_DEPS_DIR}"
 
 export PY_DEPS_DIR
 export PYTHONNOUSERSITE=1
-export PYTHONPATH="${PY_DEPS_DIR}:${REPO_ROOT}:${REPO_ROOT}/ssr:${PYTHONPATH:-}"
+export PYTHONPATH="${PY_DEPS_DIR}:${REPO_ROOT}:${SSR_DIR}"
 
-echo "Python executable: $(which python)"
-python - <<'PY'
-import sys, os
-print("Python version:", sys.version)
-print("PY_DEPS_DIR:", os.environ.get("PY_DEPS_DIR"))
-print("sys.path head:", sys.path[:6])
-PY
-
-export PIP_DISABLE_PIP_VERSION_CHECK=1
-export PIP_NO_INPUT=1
-export PIP_PROGRESS_BAR=off
-export PIP_PREFER_BINARY=1
-
-TARGET_FLAG=(--target "${PY_DEPS_DIR}" --upgrade --ignore-installed)
-
-echo "Installing core deps into ${PY_DEPS_DIR} ..."
-python -m pip install -q "${TARGET_FLAG[@]}" \
+echo "Installing Python packages..."
+python -m pip install -q --target "${PY_DEPS_DIR}" --upgrade --ignore-installed \
   "numpy==2.1.3" \
+  "opencv-python>=4.10,<5" \
   "requests>=2.32,<3" \
   "tqdm>=4.67,<5" \
   "filelock>=3.15" \
-  "opencv-python>=4.10,<5"
-
-echo "Checking torch from base runtime..."
-python - <<'PY'
-import torch
-print("Torch:", torch.__version__)
-PY
-
-echo "Installing project requirements..."
-python -m pip install -q "${TARGET_FLAG[@]}" -r "${REQ_FILE}"
-
-echo "Installing OpenMMLab..."
-python -m pip install -q "${TARGET_FLAG[@]}" \
   "mmengine==0.10.7" \
   "mmcv-lite==2.1.0" \
-  "mmdet==3.3.0"
+  "mmdet==3.3.0" \
+  "ptflops" \
+  "pydeps" \
+  "tach" \
+  "colorama" \
+  "pycocotools" \
+  "pytest-html" \
+  "openpyxl" \
+  "rich>=14.2.0" \
+  "pyquaternion" \
+  "flowlib" \
+  "nuscenes-devkit==1.2.0" \
+  "torch-fidelity==0.3.0" \
+  "torcheval==0.0.7" \
+  "torchmetrics==1.3.1" \
+  "torchsummary==1.5.1" \
+  "accelerate<0.32" \
+  "transformers<4.41" \
+  "scikit-image==0.21.0" \
+  "scikit-learn==1.3.2"
 
 echo "Verifying imports..."
 python - <<'PY'
-import sys
-import numpy, cv2, torch, mmengine, mmcv, mmdet
+import numpy, cv2, mmengine, mmcv, mmdet
 print("numpy:", numpy.__version__)
 print("cv2:", cv2.__version__)
-print("torch:", torch.__version__)
 print("mmengine:", mmengine.__version__)
 print("mmcv:", mmcv.__version__)
 print("mmdet:", mmdet.__version__)
-print("mmcv path:", mmcv.__file__)
+print("mmcv file:", mmcv.__file__)
 PY
 
-echo "Writing run helper..."
-cat > "${SCRIPT_DIR}/run_ssr.sh" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-export PY_DEPS_DIR="${PY_DEPS_DIR}"
-export PYTHONNOUSERSITE=1
-export PYTHONPATH="${PY_DEPS_DIR}:${REPO_ROOT}:${REPO_ROOT}/ssr"
-cd "${REPO_ROOT}"
-python ssr/run.py "\$@"
-EOF
-chmod +x "${SCRIPT_DIR}/run_ssr.sh"
+echo "Preparing dataset..."
+mkdir -p "${SSR_DIR}/data"
+
+if [[ -d "${DATASET_SRC}" ]]; then
+  echo "Copying dataset..."
+  rm -rf "${DATASET_DST}"
+  mkdir -p "${DATASET_DST}"
+  cp -r "${DATASET_SRC}/." "${DATASET_DST}/"
+else
+  echo "ERROR: Dataset not found: ${DATASET_SRC}"
+  exit 1
+fi
+
+echo "Reconstructing data.zip..."
+cd "${SSR_DIR}"
+rm -f data.zip
+cat data.zip.part-a* > data.zip
+
+echo "Unzipping data.zip..."
+unzip -o data.zip
 
 echo "Setup complete."
-echo "Run with: ${SCRIPT_DIR}/run_ssr.sh --help"
+echo ""
+echo "To run later:"
+echo "----------------------------------------"
+echo "export PY_DEPS_DIR=${PY_DEPS_DIR}"
+echo "export PYTHONNOUSERSITE=1"
+echo "export PYTHONPATH=${PY_DEPS_DIR}:${REPO_ROOT}:${SSR_DIR}"
+echo "cd ${SSR_DIR}"
+echo "python run.py <your_args>"
+echo "----------------------------------------"
