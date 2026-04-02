@@ -6,13 +6,8 @@ pycocotools
 pytest-html
 openpyxl
 rich>=14.2.0
-
-# Datasets
 pyquaternion
 flowlib
-nuscenes-devkit==1.2.0
-
-# Torch-related utilities
 torch-fidelity==0.3.0
 torcheval==0.0.7
 torchmetrics==1.3.1
@@ -21,3 +16,4 @@ accelerate<0.32
 transformers<4.41
 scikit-image==0.21.0
 scikit-learn==1.3.2
+nuscenes-devkit==1.2.0
