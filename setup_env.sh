@@ -31,8 +31,7 @@ python -m pip install lazy_loader
 
 python -m pip install joblib threadpoolctl scipy tqdm cachetools loguru shapely descartes ipython seaborn
 
-echo "Installing legacy-compatible numpy/opencv..."
-python -m pip install --force-reinstall --no-deps numpy==1.26.4
+echo "Installing legacy-compatible opencv..."
 python -m pip install --force-reinstall --no-deps "opencv-python-headless<4.13"
 
 echo "Installing PyTorch 2.1 CPU stack..."
@@ -77,7 +76,25 @@ python -m pip install \
   "matplotlib>=3.6" \
   "pillow" \
   "packaging" \
-  "pyyaml"
+  "pyyaml" \
+  --no-deps
+
+echo "Force reinstalling NumPy (final step)..."
+
+# uninstall ANY existing numpy (ignore errors)
+python -m pip uninstall -y numpy || true
+
+# install exact version without dependency interference
+python -m pip install --no-cache-dir --no-deps numpy==1.26.4
+
+echo "Verifying NumPy..."
+python - <<'PY'
+import numpy, sys
+print("python exe:", sys.executable)
+print("numpy version:", numpy.__version__)
+print("numpy path:", numpy.__file__)
+assert numpy.__version__ == "1.26.4", f"Expected 1.26.4, got {numpy.__version__}"
+PY
 
 echo "Verifying environment..."
 python - <<'PY'
