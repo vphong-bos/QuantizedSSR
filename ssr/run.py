@@ -27,9 +27,9 @@ from mmcv.cnn import fuse_conv_bn
 from mmcv.parallel import MMDataParallel
 from mmcv.runner import (get_dist_info, load_checkpoint, wrap_fp16_model)
 
-from projects.mmdet3d_plugin.datasets.builder import build_dataloader
-from projects.mmdet3d_plugin.SSR.utils.builder import build_model
-from projects.mmdet3d_plugin.datasets import VADCustomNuScenesDataset
+from ssr.projects.mmdet3d_plugin.datasets.builder import build_dataloader
+from ssr.projects.mmdet3d_plugin.SSR.utils.builder import build_model
+from ssr.projects.mmdet3d_plugin.datasets import VADCustomNuScenesDataset
 from mmdet.apis import set_random_seed
 from mmdet.datasets import replace_ImageToTensor
 import time

@@ -34,15 +34,15 @@ from mmdet.models.dense_heads import DETRHead
 from mmcv.runner import force_fp32
 from mmcv.utils import TORCH_VERSION, digit_version
 from mmdet.core import build_assigner, build_sampler
-from projects.mmdet3d_plugin.core.builder import build_bbox_coder
+from ssr.projects.mmdet3d_plugin.core.builder import build_bbox_coder
 from mmdet.models.utils.transformer import inverse_sigmoid
 from mmdet.core.bbox.transforms import bbox_xyxy_to_cxcywh
 from mmcv.cnn import Linear, bias_init_with_prob, xavier_init
 from mmdet.core import (multi_apply, multi_apply, reduce_mean)
 from mmcv.cnn.bricks.transformer import build_transformer_layer_sequence
 
-from projects.mmdet3d_plugin.core.bbox.structures.utils import normalize_bbox
-from projects.mmdet3d_plugin.SSR.utils.map_utils import (
+from ssr.projects.mmdet3d_plugin.core.bbox.structures.utils import normalize_bbox
+from ssr.projects.mmdet3d_plugin.SSR.utils.map_utils import (
     normalize_2d_pts, normalize_2d_bbox, denormalize_2d_pts, denormalize_2d_bbox
 )
 from .tokenlearner import *

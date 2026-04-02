@@ -11,9 +11,9 @@ from mmcv.cnn.bricks.registry import TRANSFORMER_LAYER_SEQUENCE
 from mmcv.cnn.bricks.transformer import TransformerLayerSequence
 from mmcv.cnn.bricks.transformer import build_transformer_layer_sequence
 
-from projects.mmdet3d_plugin.SSR.modules.decoder import CustomMSDeformableAttention
-from projects.mmdet3d_plugin.SSR.modules.temporal_self_attention import TemporalSelfAttention
-from projects.mmdet3d_plugin.SSR.modules.spatial_cross_attention import MSDeformableAttention3D
+from ssr.projects.mmdet3d_plugin.SSR.modules.decoder import CustomMSDeformableAttention
+from ssr.projects.mmdet3d_plugin.SSR.modules.temporal_self_attention import TemporalSelfAttention
+from ssr.projects.mmdet3d_plugin.SSR.modules.spatial_cross_attention import MSDeformableAttention3D
 
 ext_module = ext_loader.load_ext(
     '_ext', ['ms_deform_attn_backward', 'ms_deform_attn_forward'])

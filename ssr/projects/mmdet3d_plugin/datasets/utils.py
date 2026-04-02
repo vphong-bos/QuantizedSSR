@@ -11,7 +11,7 @@ import mmcv
 #                                         MultiScaleFlipAug3D,
 #                                         PointSegClassMapping)
 # yapf: enable
-from projects.mmdet3d_plugin.datasets.pipelines import (Collect3D, DefaultFormatBundle3D,
+from ssr.projects.mmdet3d_plugin.datasets.pipelines import (Collect3D, DefaultFormatBundle3D,
     LoadAnnotations3D,
     LoadImageFromFileMono3D,
     LoadMultiViewImageFromFiles,

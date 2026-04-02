@@ -5,7 +5,7 @@ from abc import abstractmethod
 
 # from mmdet3d.ops.iou3d import iou3d_cuda  # WARNING: this will be removed
 # from .utils import limit_period, xywhr2xyxyr
-from projects.mmdet3d_plugin.core.bbox.structures.utils import limit_period, xywhr2xyxyr, boxes_overlap_bev
+from ssr.projects.mmdet3d_plugin.core.bbox.structures.utils import limit_period, xywhr2xyxyr, boxes_overlap_bev
 
 
 class BaseInstance3DBoxes(object):

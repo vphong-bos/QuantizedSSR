@@ -9,8 +9,8 @@ from os import path as osp
 from mmdet.datasets import DATASETS
 # from ..core import show_result
 # from ..core.bbox import LiDARInstance3DBoxes
-from projects.mmdet3d_plugin.core.bbox.structures import LiDARInstance3DBoxes
-from projects.mmdet3d_plugin.datasets.custom_3d import Custom3DDataset
+from ssr.projects.mmdet3d_plugin.core.bbox.structures import LiDARInstance3DBoxes
+from ssr.projects.mmdet3d_plugin.datasets.custom_3d import Custom3DDataset
 # from .custom_3d import Custom3DDataset
 from mmdet.datasets.pipelines import Compose
 
