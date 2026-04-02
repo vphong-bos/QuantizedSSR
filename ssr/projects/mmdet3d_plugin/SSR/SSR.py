@@ -34,8 +34,6 @@ from .tokenlearner import TokenFuser
 import torch.nn.functional as F
 import torch.nn as nn
 
-from bos_metal import op
-
 def bbox3d2result(bboxes, scores, labels, attrs=None):
     """Convert detection results to a list of numpy arrays.
 

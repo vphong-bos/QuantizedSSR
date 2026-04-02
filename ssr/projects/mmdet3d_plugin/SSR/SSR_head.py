@@ -48,7 +48,6 @@ from projects.mmdet3d_plugin.SSR.utils.map_utils import (
 from .tokenlearner import *
 from mmdet.models.utils import LearnedPositionalEncoding
 
-from bos_metal import op
 class MLN(nn.Module):
     ''' 
     from "https://github.com/exiawsh/StreamPETR"

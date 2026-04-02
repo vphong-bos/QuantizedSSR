@@ -28,7 +28,8 @@ echo "Installing base packaging tools..."
 python -m pip install -U "pip<25" "setuptools<81" wheel
 
 echo "Installing legacy-compatible numpy/opencv..."
-python -m pip install "numpy==1.26.4" "opencv-python-headless<4.13"
+python -m pip install --force-reinstall --no-deps numpy==1.26.4
+python -m pip install --force-reinstall --no-deps "opencv-python-headless<4.13"
 
 echo "Installing PyTorch 2.1 CPU stack..."
 python -m pip install \

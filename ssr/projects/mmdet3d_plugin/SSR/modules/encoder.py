@@ -11,7 +11,6 @@ import torch
 from mmcv.utils import TORCH_VERSION, digit_version
 from mmcv.utils import ext_loader
 
-from bos_metal import op
 ext_module = ext_loader.load_ext(
     '_ext', ['ms_deform_attn_backward', 'ms_deform_attn_forward'])
 

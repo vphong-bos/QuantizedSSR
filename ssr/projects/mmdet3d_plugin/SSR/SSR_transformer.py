@@ -15,7 +15,6 @@ from projects.mmdet3d_plugin.SSR.modules.decoder import CustomMSDeformableAttent
 from projects.mmdet3d_plugin.SSR.modules.temporal_self_attention import TemporalSelfAttention
 from projects.mmdet3d_plugin.SSR.modules.spatial_cross_attention import MSDeformableAttention3D
 
-from bos_metal import op
 ext_module = ext_loader.load_ext(
     '_ext', ['ms_deform_attn_backward', 'ms_deform_attn_forward'])
 
