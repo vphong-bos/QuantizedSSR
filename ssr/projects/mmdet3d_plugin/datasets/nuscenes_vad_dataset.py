@@ -1859,11 +1859,10 @@ class VADCustomNuScenesDataset(NuScenesDataset):
 
         results_dict = dict()
 
-        if tmp_dir is not None:
-            tmp_dir.cleanup()
+        if metric_dict is not None:
+            for k, v in metric_dict.items():
+                results_dict[k] = v
 
-        if show:
-            self.show(results, out_dir, pipeline=pipeline)
         return results_dict
 
 def output_to_nusc_box(detection):
