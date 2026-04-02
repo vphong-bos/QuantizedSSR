@@ -39,12 +39,12 @@ NUSC_DIR="${DATASET_DST}/nuscenes"
 
 mkdir -p "${NUSC_DIR}"
 
-for f in vad_nuscenes_infos_temporal_*.pkl; do
-  if [[ -f "${DATA_DIR}/${f}" ]]; then
-    echo "Moving ${f} → nuscenes/"
-    mv "${DATA_DIR}/${f}" "${NUSC_DIR}/"
+for f in "${DATA_DIR}"/vad_nuscenes_infos_temporal_*.pkl; do
+  if [[ -f "$f" ]]; then
+    echo "Moving $(basename "$f") → nuscenes/"
+    mv "$f" "${NUSC_DIR}/"
   else
-    echo "Skipping ${f} (not found)"
+    echo "Skipping (not found)"
   fi
 done
 
