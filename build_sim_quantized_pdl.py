@@ -220,7 +220,10 @@ class AimetTraceWrapper(torch.nn.Module):
         img = batch["img"]
         img_metas = batch["img_metas"]
 
-        # 🔥 Use feature extractor instead of full inference
+        if isinstance(img, list):
+            assert len(img) == 1, f"Unexpected img list length: {len(img)}"
+            img = img[0]
+
         feats = self.model.extract_feat(img=img, img_metas=img_metas)
 
         # AIMET needs a tensor → pick one
