@@ -15,15 +15,64 @@ from typing import Optional, Dict, Any
 import torch.nn as nn
 
 
+import copy
+import torch
+import torch.nn as nn
+
+
+def sanitize_for_static_inputs(obj):
+    """
+    Remove objects that break deepcopy / pickle, such as cv2.VideoWriter.
+    """
+    try:
+        import cv2
+        bad_type = cv2.VideoWriter
+    except Exception:
+        bad_type = None
+
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if bad_type is not None and isinstance(v, bad_type):
+                continue
+            out[k] = sanitize_for_static_inputs(v)
+        return out
+
+    if isinstance(obj, list):
+        return [sanitize_for_static_inputs(v) for v in obj]
+
+    if isinstance(obj, tuple):
+        return tuple(sanitize_for_static_inputs(v) for v in obj)
+
+    return obj
+
+
 class AimetTraceWrapper(nn.Module):
-    def __init__(self, model, forward_fn):
+    def __init__(self, model, static_inputs, img_template=None):
         super().__init__()
         self.model = model
-        self.forward_fn = forward_fn
+        self.static_inputs = sanitize_for_static_inputs(static_inputs)
+        self.img_template = img_template
 
-    def forward(self, data):
-        return self.forward_fn(self.model, data)
+    def _rebuild_img(self, img):
+        """
+        Rebuild img to match the original structure expected by SSR.
+        """
+        template = self.img_template
 
+        # Most likely case: SSR expects img[0]
+        if isinstance(template, list):
+            return [img]
+
+        if isinstance(template, tuple):
+            return (img,)
+
+        return img
+
+    def forward(self, img):
+        data = dict(self.static_inputs)
+        data["img"] = self._rebuild_img(img)
+        return self.model(return_loss=False, rescale=True, **data)
 
 def aimet_forward_fn(model, data):
     return model(return_loss=False, rescale=True, **data)
