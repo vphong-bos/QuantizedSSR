@@ -214,10 +214,25 @@ class AimetTraceWrapper(torch.nn.Module):
         print(batch)
 
     def forward(self, _dummy):
-        assert self.runtime_batch is not None
-        out = self.model(return_loss=False, rescale=True, **self.runtime_batch)
-        return self._make_traceable_output(out)
+        batch = self.runtime_batch
+        assert batch is not None, "Batch not set"
 
+        img = batch["img"]
+        img_metas = batch["img_metas"]
+
+        # 🔥 Use feature extractor instead of full inference
+        feats = self.model.extract_feat(img=img, img_metas=img_metas)
+
+        # AIMET needs a tensor → pick one
+        if isinstance(feats, (list, tuple)):
+            for f in feats:
+                if torch.is_tensor(f):
+                    return f
+        elif torch.is_tensor(feats):
+            return feats
+
+        raise RuntimeError("extract_feat did not return tensor")
+    
     @staticmethod
     def _make_traceable_output(out):
         if torch.is_tensor(out):
@@ -651,6 +666,7 @@ def main(args):
     wrapped_model = AimetTraceWrapper(model=model).to(args.device).eval()
     wrapped_model.set_batch(prepared_batch)
 
+    # dummy input is irrelevant now
     dummy_input = torch.zeros(1, device=args.device)
 
     maybe_run_cle(wrapped_model, dummy_input, args.enable_cle)
