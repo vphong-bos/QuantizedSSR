@@ -336,7 +336,7 @@ def main(args):
     first_batch = next(iter(data_loader))
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
 
-    wrapped_model = AimetTraceWrapper(model=model).to(args.device).eval()
+    wrapped_model = AimetTraceWrapper(model=model, forward_fn=aimet_forward_fn).to(args.device).eval()
     wrapped_model.set_batch(prepared_batch)
 
     real_img = prepared_batch["img"]
