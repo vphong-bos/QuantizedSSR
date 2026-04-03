@@ -102,32 +102,22 @@ def build_dataset(cfg, default_args=None):
 # Data handling from the detector script
 # -----------------------------------------------------------------------------
 def extract_data_from_container(data):
-    data = dict(data)
-
-    # keep img_metas double-nested because SSR.forward expects img_metas[0][0]
+    """Extract data from DataContainer."""
     data["img_metas"] = data["img_metas"][0].data
-
+    # data["points"] = data["points"][0].data
     data["gt_bboxes_3d"] = data["gt_bboxes_3d"][0].data
     data["gt_labels_3d"] = data["gt_labels_3d"][0].data
-
-    # unwrap img all the way to tensor
     data["img"] = data["img"][0].data
-    if isinstance(data["img"], list):
-        assert len(data["img"]) == 1
-        data["img"] = data["img"][0]
-
+    # data["fut_valid_flag"] = data["fut_valid_flag"][0].data
     data["ego_his_trajs"] = data["ego_his_trajs"][0].data
     data["ego_fut_trajs"] = data["ego_fut_trajs"][0].data
+    # data["ego_fut_masks"] = data["ego_fut_masks"][0].data
     data["ego_fut_cmd"] = data["ego_fut_cmd"][0].data
     data["ego_lcf_feat"] = data["ego_lcf_feat"][0].data
     data["gt_attr_labels"] = data["gt_attr_labels"][0].data
-
+    # data["gt_attr_labels"] = data["gt_attr_labels"][0]
     data["map_gt_labels_3d"] = data["map_gt_labels_3d"].data[0]
     data["map_gt_bboxes_3d"] = data["map_gt_bboxes_3d"].data[0]
-
-    if hasattr(data["img"], "dim") and data["img"].dim() == 4:
-        data["img"] = data["img"].unsqueeze(0)
-
     return data
 
 
