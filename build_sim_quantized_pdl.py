@@ -56,7 +56,7 @@ from mmdet.datasets import DATASETS, replace_ImageToTensor
 from evaluation.eval_dataset import build_eval_loader
 from evaluation.eval_metrics import evaluate_model
 from ssr.projects.mmdet3d_plugin.SSR.model import build_model
-from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn, prepare_batch, create_quant_sim
+from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn, prepare_batch, create_quant_sim, calibration_forward_pass
 
 from aimet_common.defs import QuantScheme
 from aimet_common.utils import CallbackFunc
@@ -66,6 +66,7 @@ from aimet_torch.quant_analyzer import QuantAnalyzer
 from aimet_torch.quantsim import QuantizationSimModel
 from aimet_torch.seq_mse import SeqMseParams, apply_seq_mse
 from aimet_torch import onnx as aimet_onnx
+from aimet_torch import quantsim
 
 from mmdet.models.losses.focal_loss import FocalLoss
 from mmdet.models.losses.smooth_l1_loss import L1Loss
@@ -398,14 +399,8 @@ def main(args):
     calib_time = time.time() - calib_start
     print(f"Calibration finished in {calib_time:.2f} s")
 
-    if args.run_int8_eval:
-        print("Running INT8-sim evaluation...")
-        int8_outputs = run_eval(sim.model, data_loader, torch.device(args.device), args.eval_batches)
-        int8_metrics = dataset.evaluate(int8_outputs, metric=args.eval_metric)
-        print("[INT8]", int8_metrics)
-
     if args.save_quant_checkpoint is not None:
-        torch.save(sim, args.save_quant_checkpoint)
+        quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
         print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
 
     if not args.no_export:
