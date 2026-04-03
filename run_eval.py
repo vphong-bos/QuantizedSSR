@@ -148,8 +148,11 @@ def main():
         quant_results = tmp
         if rank == 0:
             print("======================================================")
-            print(type(quant_results['bbox_results'][0]))
-            print(quant_results['bbox_results'][0])
+            print("type first result:", type(quant_results["bbox_results"][0]))
+            if isinstance(quant_results["bbox_results"][0], dict):
+                print("first result keys:", quant_results["bbox_results"][0].keys())
+            else:
+                print("first result is not dict")
             print(dataset.evaluate(quant_results['bbox_results'], metric=args.eval))
 
 if __name__ == '__main__':
