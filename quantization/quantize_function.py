@@ -29,6 +29,7 @@ class AimetTraceWrapper(nn.Module):
         return self.forward_fn(self.model, data)
 
 def aimet_forward_fn(model, data):
+    data = extract_data(data)
     return model(return_loss=False, rescale=True, **data)
 
 def prepare_batch(batch, device):
