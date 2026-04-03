@@ -17,71 +17,85 @@ import torch
 import numpy as np
 import torch.nn as nn
 
-
-def sanitize_for_aimet(obj):
-    """
-    Recursively keep only deepcopy/pickle-safe content.
-    Drops objects like cv2.VideoWriter hidden inside img_metas.
-    """
-    if obj is None:
-        return None
-
-    if isinstance(obj, (str, int, float, bool)):
-        return obj
-
-    if isinstance(obj, torch.Tensor):
-        return obj
-
-    if isinstance(obj, np.ndarray):
-        return obj
-
-    if isinstance(obj, dict):
-        out = {}
-        for k, v in obj.items():
-            try:
-                cleaned = sanitize_for_aimet(v)
-                pickle.dumps(cleaned)
-                out[k] = cleaned
-            except Exception:
-                print(f"[sanitize] dropped key: {k} ({type(v)})")
-        return out
-
-    if isinstance(obj, list):
-        out = []
-        for i, v in enumerate(obj):
-            try:
-                cleaned = sanitize_for_aimet(v)
-                pickle.dumps(cleaned)
-                out.append(cleaned)
-            except Exception:
-                print(f"[sanitize] dropped list[{i}] ({type(v)})")
-        return out
-
-    if isinstance(obj, tuple):
-        out = []
-        for i, v in enumerate(obj):
-            try:
-                cleaned = sanitize_for_aimet(v)
-                pickle.dumps(cleaned)
-                out.append(cleaned)
-            except Exception:
-                print(f"[sanitize] dropped tuple[{i}] ({type(v)})")
-        return tuple(out)
-
-    # last chance: keep only if pickle-safe
-    pickle.dumps(obj)
-    return obj
+import torch
+import torch.nn as nn
 
 class AimetTraceWrapper(nn.Module):
-    def __init__(self, model, static_inputs):
+    def __init__(self, model):
         super().__init__()
         self.model = model
-        self.static_inputs = sanitize_for_aimet(static_inputs)
+        self.runtime_batch = None
 
-    def forward(self, img):
-        data = dict(self.static_inputs)   # shallow copy only
-        data["img"] = img
-        return self.model(return_loss=False, rescale=True, **data)
+    def set_batch(self, batch):
+        self.runtime_batch = batch
+
+    def forward(self, *args, return_loss=False, rescale=True, **kwargs):
+        """
+        Supports both:
+          1) AIMET tracing:
+               wrapper(images)
+          2) Normal detector eval:
+               wrapper(return_loss=False, rescale=True, **data)
+        """
+
+        # Case 1: AIMET trace / QuantSim dummy_input path
+        if len(args) == 1 and torch.is_tensor(args[0]):
+            if self.runtime_batch is None:
+                raise RuntimeError(
+                    "AimetTraceWrapper.forward(images) called before set_batch()."
+                )
+
+            batch = dict(self.runtime_batch)
+            batch["img"] = args[0]
+            outputs = self.model(return_loss=False, rescale=True, **batch)
+            return self._make_traceable_output(outputs)
+
+        # Case 2: Normal eval path with full detector batch
+        if kwargs:
+            outputs = self.model(return_loss=return_loss, rescale=rescale, **kwargs)
+            return outputs
+
+        # Case 3: fallback to cached batch
+        if self.runtime_batch is not None:
+            outputs = self.model(
+                return_loss=False,
+                rescale=True,
+                **self.runtime_batch,
+            )
+            return self._make_traceable_output(outputs)
+
+        raise RuntimeError("No valid inputs were provided to AimetTraceWrapper.forward().")
+
+    def _make_traceable_output(self, outputs):
+        if torch.is_tensor(outputs):
+            return outputs
+
+        if isinstance(outputs, dict):
+            tensor_dict = {k: v for k, v in outputs.items() if torch.is_tensor(v)}
+            if len(tensor_dict) == 1:
+                return next(iter(tensor_dict.values()))
+            if tensor_dict:
+                return tuple(tensor_dict.values())
+
+        if isinstance(outputs, (list, tuple)):
+            gathered = []
+            for item in outputs:
+                if torch.is_tensor(item):
+                    gathered.append(item)
+                elif isinstance(item, dict):
+                    for value in item.values():
+                        if torch.is_tensor(value):
+                            gathered.append(value)
+
+            if len(gathered) == 1:
+                return gathered[0]
+            if gathered:
+                return tuple(gathered)
+
+        raise RuntimeError(
+            "Model output does not expose tensors suitable for AIMET tracing."
+        )
+    
 def aimet_forward_fn(model, data):
     return model(return_loss=False, rescale=True, **data)
 # import copy
@@ -118,29 +132,32 @@ def run_model_on_batch(model: AimetTraceWrapper, batch: Dict[str, Any], device: 
     return model(batch["img"])
 
 @torch.no_grad()
-def calibration_forward_pass(model, callback_args):
-    calib_loader, device, max_batches, max_samples = callback_args
-
+def calibration_forward_pass(model, forward_pass_args):
+    dataloader, device, max_batches, max_samples = forward_pass_args
     model.eval()
+
     seen_samples = 0
-    dummy = torch.zeros(1, device=device)
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(dataloader):
+            prepared = prepare_batch(batch, device)
 
-    for batch_idx, batch in enumerate(calib_loader):
-        prepared = prepare_batch(batch, device)
-        model.set_batch(prepared)
-        _ = model(dummy)
+            if hasattr(model, "set_batch"):
+                model.set_batch(prepared)
+                _ = model(prepared["img"])
+            else:
+                _ = model(prepared["img"])
 
-        batch_img = prepared["img"]
-        if isinstance(batch_img, list):
-            batch_img = batch_img[0]
+            batch_img = prepared["img"]
+            if isinstance(batch_img, list):
+                batch_img = batch_img[0]
 
-        current_bs = batch_img.size(0) if torch.is_tensor(batch_img) else 1
-        seen_samples += current_bs
+            current_bs = batch_img.size(0) if torch.is_tensor(batch_img) else 1
+            seen_samples += current_bs
 
-        if max_batches is not None and max_batches > 0 and batch_idx + 1 >= max_batches:
-            break
-        if max_samples is not None and max_samples > 0 and seen_samples >= max_samples:
-            break
+            if max_batches is not None and max_batches > 0 and batch_idx + 1 >= max_batches:
+                break
+            if max_samples is not None and max_samples > 0 and seen_samples >= max_samples:
+                break
 
 import os
 import torch
