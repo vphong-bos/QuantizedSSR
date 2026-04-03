@@ -87,8 +87,6 @@ class QuantizedLinear(QuantizationMixin, Linear):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return super().forward(x)
 
-
-
 warnings.filterwarnings("ignore")
 
 OBJECTSAMPLERS = Registry("Object sampler")
@@ -101,21 +99,17 @@ def build_dataset(cfg, default_args=None):
 # -----------------------------------------------------------------------------
 # Data handling from the detector script
 # -----------------------------------------------------------------------------
-def extract_data_from_container(data):
-    """Extract data from DataContainer."""
+def extract_data_from_container(data: Dict[str, Any]) -> Dict[str, Any]:
+    data = dict(data)
     data["img_metas"] = data["img_metas"][0].data
-    # data["points"] = data["points"][0].data
     data["gt_bboxes_3d"] = data["gt_bboxes_3d"][0].data
     data["gt_labels_3d"] = data["gt_labels_3d"][0].data
     data["img"] = data["img"][0].data
-    # data["fut_valid_flag"] = data["fut_valid_flag"][0].data
     data["ego_his_trajs"] = data["ego_his_trajs"][0].data
     data["ego_fut_trajs"] = data["ego_fut_trajs"][0].data
-    # data["ego_fut_masks"] = data["ego_fut_masks"][0].data
     data["ego_fut_cmd"] = data["ego_fut_cmd"][0].data
     data["ego_lcf_feat"] = data["ego_lcf_feat"][0].data
     data["gt_attr_labels"] = data["gt_attr_labels"][0].data
-    # data["gt_attr_labels"] = data["gt_attr_labels"][0]
     data["map_gt_labels_3d"] = data["map_gt_labels_3d"].data[0]
     data["map_gt_bboxes_3d"] = data["map_gt_bboxes_3d"].data[0]
     return data
@@ -159,13 +153,10 @@ class AimetTraceWrapper(torch.nn.Module):
     def set_batch(self, batch: Dict[str, Any]) -> None:
         self.runtime_batch = batch
 
-    def forward(self, img, img_metas):
-        out = self.model(            
-            return_loss=False,
-            rescale=True,
-            img=img,
-            img_metas=img_metas 
-        )
+    def forward(self, batch: torch.Tensor):
+        # batch = dict(self.runtime_batch)
+        # batch["img"] = images
+        out = self.model(return_loss=False, rescale=True, **batch)
         return self._make_traceable_output(out)
 
     @staticmethod
@@ -605,10 +596,7 @@ def main(args):
 
     first_batch = next(iter(data_loader))
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
-    dummy_input = (
-        prepared_batch["img"],
-        prepared_batch["img_metas"]
-    )
+    dummy_input = prepared_batch
 
     print("Wrapping model for AIMET tracing...")
     wrapped_model = AimetTraceWrapper(model=model, initial_batch=prepared_batch).to(args.device).eval()
