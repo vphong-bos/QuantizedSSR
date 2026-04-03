@@ -352,7 +352,6 @@ def main(args):
     wrapped_model = AimetTraceWrapper(
         model=model,
         static_inputs=static_inputs,
-        img_template=prepared_batch["img"],
     ).to(args.device).eval()
 
     wrapped_model(prepared_batch["img"])
