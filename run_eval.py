@@ -12,7 +12,7 @@ if py_deps:
         sys.path.remove(py_deps)
     sys.path.insert(0, py_deps)
 
-sys.path.append('')
+sys.path.append("")
 
 print("PY_DEPS_DIR =", py_deps)
 print("sys.path[:6] =", sys.path[:6])
@@ -23,21 +23,19 @@ from mmcv import Config
 print("mmcv loaded from:", mmcv.__file__)
 import warnings
 from mmcv import DictAction
-from mmcv.runner import (get_dist_info)
+from mmcv.runner import get_dist_info
 
 from evaluation.eval_dataset import build_eval_loader
 from evaluation.eval_metrics import evaluate_model
 from ssr.projects.mmdet3d_plugin.SSR.model import build_model
 from quantization.quantize_function import load_quantized_model
 
-import warnings
 warnings.filterwarnings("ignore")
-
 
 import platform
 from mmcv.utils import Registry
 
-if platform.system() != 'Windows':
+if platform.system() != "Windows":
     import resource
     rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
     base_soft_limit = rlimit[0]
@@ -45,58 +43,71 @@ if platform.system() != 'Windows':
     soft_limit = min(max(4096, base_soft_limit), hard_limit)
     resource.setrlimit(resource.RLIMIT_NOFILE, (soft_limit, hard_limit))
 
-OBJECTSAMPLERS = Registry('Object sampler')
+OBJECTSAMPLERS = Registry("Object sampler")
+
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description='MMDet test (and eval) a model')
-    parser.add_argument('--config_path', help='test config file path')
-    parser.add_argument('--fp32_weights', help='checkpoint file')
-    parser.add_argument('--quant_weights', help='checkpoint file')
+    parser = argparse.ArgumentParser(description="MMDet test (and eval) a model")
+    parser.add_argument("--config_path", help="test config file path")
+    parser.add_argument("--fp32_weights", help="checkpoint file")
+    parser.add_argument("--quant_weights", help="checkpoint file")
     parser.add_argument(
-        '--fuse-conv-bn',
-        action='store_true',
-        help='Whether to fuse conv and bn, this will slightly increase'
-        'the inference speed')
+        "--fuse-conv-bn",
+        action="store_true",
+        help="Whether to fuse conv and bn, this will slightly increase the inference speed",
+    )
     parser.add_argument(
-        '--eval',
+        "--eval",
         type=str,
-        nargs='+',
-        help='evaluation metrics, which depends on the dataset, e.g., "bbox",'
-        ' "segm", "proposal" for COCO, and "mAP", "recall" for PASCAL VOC')
-    parser.add_argument('--seed', type=int, default=0, help='random seed')
+        nargs="+",
+        help='evaluation metrics, which depends on the dataset, e.g., "bbox", "segm", "proposal" for COCO, and "mAP", "recall" for PASCAL VOC',
+    )
+    parser.add_argument("--seed", type=int, default=0, help="random seed")
     parser.add_argument(
-        '--cfg-options',
-        nargs='+',
+        "--cfg-options",
+        nargs="+",
         action=DictAction,
-        help='override some settings in the used config, the key-value pair '
-        'in xxx=yyy format will be merged into config file. If the value to '
-        'be overwritten is a list, it should be like key="[a,b]" or key=a,b '
-        'It also allows nested list/tuple values, e.g. key="[(a,b),(c,d)]" '
-        'Note that the quotation marks are necessary and that no white space '
-        'is allowed.')
-    parser.add_argument('--local_rank', type=int, default=0)
-    parser.add_argument('--max_samples', type=int, default=None)
+        help='override some settings in the used config, the key-value pair in xxx=yyy format will be merged into config file. If the value to be overwritten is a list, it should be like key="[a,b]" or key=a,b It also allows nested list/tuple values, e.g. key="[(a,b),(c,d)]" Note that the quotation marks are necessary and that no white space is allowed.',
+    )
+    parser.add_argument("--local_rank", type=int, default=0)
+    parser.add_argument("--max_samples", type=int, default=None)
     parser.add_argument(
-        '--graph_optimization_level',
+        "--graph_optimization_level",
         choices=["disable_all", "basic", "extended", "all"],
         default="disable_all",
-        help='Quantization optimization level, only work with onnx format model')
+        help="Quantization optimization level, only work with onnx format model",
+    )
     parser.add_argument(
-        '--device',
+        "--device",
         choices=["cpu", "cuda"],
         default="cpu",
-        help='Choose device')
+        help="Choose device",
+    )
     parser.add_argument(
-        '--provider',
+        "--provider",
         choices=["CPUExecutionProvider", "CUDAExecutionProvider"],
         default="CPUExecutionProvider",
-        help='Choose onnx provider')
+        help="Choose onnx provider",
+    )
     args = parser.parse_args()
-    if 'LOCAL_RANK' not in os.environ:
-        os.environ['LOCAL_RANK'] = str(args.local_rank)
+    if "LOCAL_RANK" not in os.environ:
+        os.environ["LOCAL_RANK"] = str(args.local_rank)
 
     return args
+
+
+def unwrap_detector_for_eval(model):
+    """
+    If AIMET checkpoint loads a wrapper model, unwrap the inner detector.
+
+    Expected cases:
+    - original detector model -> returned as-is
+    - AIMET wrapper with .model attribute -> return inner detector
+    """
+    if hasattr(model, "set_batch") and hasattr(model, "model"):
+        print("[INFO] Detected wrapped quant model. Using inner detector for evaluation.")
+        return model.model
+    return model
 
 
 def main():
@@ -108,7 +119,16 @@ def main():
 
     if args.fp32_weights:
         print("Loading FP32 model...")
-        fp32_model, _ = build_model(cfg, args.fp32_weights, dataset, args.fuse_conv_bn, args.device)
+        fp32_model, _ = build_model(
+            cfg,
+            args.fp32_weights,
+            dataset,
+            args.fuse_conv_bn,
+            args.device,
+        )
+        fp32_model = unwrap_detector_for_eval(fp32_model)
+        fp32_model.eval()
+
         print("Evaluating FP32 model...")
         fp32_results = evaluate_model(
             model_obj={
@@ -117,17 +137,17 @@ def main():
                 "session": None,
                 "input_name": None,
                 "output_names": None,
-            }, 
-            data_loader=data_loader, 
+            },
+            data_loader=data_loader,
             max_samples=args.max_samples,
         )
 
-        tmp = {}
-        tmp['bbox_results'] = fp32_results
-        outputs = tmp
         if rank == 0:
             print("======================================================")
-            print(dataset.evaluate(fp32_results['bbox_results'], metric=args.eval))
+            print("FP32 first result type:", type(fp32_results[0]))
+            if isinstance(fp32_results[0], dict):
+                print("FP32 first result keys:", fp32_results[0].keys())
+            print(dataset.evaluate(fp32_results, metric=args.eval))
 
     if args.quant_weights:
         quant_obj = load_quantized_model(
@@ -136,26 +156,39 @@ def main():
             graph_optimization_level=args.graph_optimization_level,
             provider=args.provider,
         )
-        
+
+        if quant_obj["backend"] == "onnx":
+            raise RuntimeError(
+                "ONNX quant model is not directly compatible with dataset.evaluate() in the current pipeline, "
+                "because it returns raw outputs instead of detector-format result dicts. "
+                "Use AIMET checkpoint evaluation, or add detector decode/postprocess for ONNX first."
+            )
+
+        quant_model = unwrap_detector_for_eval(quant_obj["model"])
+        quant_model.eval()
+
+        print("Evaluating quantized model...")
         quant_results = evaluate_model(
-            model_obj=quant_obj,
+            model_obj={
+                "backend": "torch",
+                "model": quant_model,
+                "session": None,
+                "input_name": None,
+                "output_names": None,
+            },
             data_loader=data_loader,
             max_samples=args.max_samples,
         )
 
-        tmp = {}
-        tmp['bbox_results'] = quant_results
-        quant_results = tmp
         if rank == 0:
             print("======================================================")
-            print("type first result:", type(quant_results["bbox_results"][0]))
-            if isinstance(quant_results["bbox_results"][0], dict):
-                print("first result keys:", quant_results["bbox_results"][0].keys())
+            print("Quant first result type:", type(quant_results[0]))
+            if isinstance(quant_results[0], dict):
+                print("Quant first result keys:", quant_results[0].keys())
             else:
-                print("first result is not dict")
-            print(dataset.evaluate(quant_results['bbox_results'], metric=args.eval))
+                print("Quant first result is not dict")
+            print(dataset.evaluate(quant_results, metric=args.eval))
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
-    
-    
