@@ -5,10 +5,13 @@ import torch.nn as nn
 from evaluation.eval_dataset import extract_data
 
 from aimet_torch import quantsim
+from aimet_common.defs import QuantScheme
+from aimet_torch.quantsim import QuantizationSimModel
 
 from quantization.registered_ops import QuantizedLinear
 
-from typing import Dict, Any
+
+from typing import Optional, Dict, Any
 
 class AimetTraceWrapper(nn.Module):
     def __init__(self, model, forward_fn):

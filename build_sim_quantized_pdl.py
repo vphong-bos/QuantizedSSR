@@ -472,8 +472,7 @@ def main(args):
                 output_names=["output"],
                 opset_version=20,
                 export_int32_bias=True,
-                prequantize_constants=True,
-                dynamo=False,
+                prequantize_constants=True
             )
             print(f"Exported QDQ ONNX to: {onnx_path}")
     else:
