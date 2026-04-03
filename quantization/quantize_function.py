@@ -51,6 +51,9 @@ class AimetTraceWrapper(torch.nn.Module):
 
         raise RuntimeError(f"extract_feat returned unsupported type: {type(feats)}")
     
+def aimet_forward_fn(model, inputs):
+    return model(torch.zeros(1, device=next(model.parameters()).device))
+
 def move_to_device(obj: Any, device: torch.device) -> Any:
     if torch.is_tensor(obj):
         return obj.to(device, non_blocking=True)
