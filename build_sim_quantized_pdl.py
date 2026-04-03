@@ -98,7 +98,6 @@ if platform.system() != 'Windows':
     soft_limit = min(max(4096, base_soft_limit), hard_limit)
     resource.setrlimit(resource.RLIMIT_NOFILE, (soft_limit, hard_limit))
 
-
 # def analyzer_forward_pass(model, callback_args):
 #     calib_loader, device, max_batches = callback_args
 #     calibration_forward_pass(model, (calib_loader, device, max_batches))
@@ -349,7 +348,7 @@ def main(args):
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
 
     wrapped_model = AimetTraceWrapper(model=model, forward_fn=aimet_forward_fn).to(args.device).eval()
-    wrapped_model.forward(prepared_batch)
+    wrapped_model.forward(prepared_batch["img"])
 
     real_img = prepared_batch["img"]
     if isinstance(real_img, list):
