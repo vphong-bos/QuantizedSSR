@@ -30,8 +30,6 @@ from evaluation.eval_metrics import evaluate_model
 from ssr.projects.mmdet3d_plugin.SSR.model import build_model
 from quantization.quantize_function import load_quantized_model
 
-from utils.config import import_plugin_modules, prepare_cfg
-
 import warnings
 warnings.filterwarnings("ignore")
 
