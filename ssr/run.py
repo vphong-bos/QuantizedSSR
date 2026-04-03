@@ -32,7 +32,7 @@ from ssr.projects.mmdet3d_plugin.SSR.utils.builder import build_model
 from ssr.projects.mmdet3d_plugin.datasets import VADCustomNuScenesDataset
 
 from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn
-from quantization.registered_ops import QuantizedLinear
+from aimet_torch.v2 import quantsim
 
 from mmdet.apis import set_random_seed
 from mmdet.datasets import replace_ImageToTensor
@@ -101,87 +101,25 @@ def load_onnx_session(onnx_path, provider='CPUExecutionProvider', opt_level='bas
         providers=[provider],
     )
 
-    input_names = [x.name for x in session.get_inputs()]
-    output_names = [x.name for x in session.get_outputs()]
+    input_name = session.get_inputs()[0].name
+    output_names = [o.name for o in session.get_outputs()]
 
     print('[ONNX] loaded from:', onnx_path)
     print('[ONNX] provider   :', provider)
     print('[ONNX] opt level  :', opt_level)
-    print('[ONNX] inputs     :', input_names)
+    print('[ONNX] input      :', input_name)
     print('[ONNX] outputs    :', output_names)
 
-    return session, input_names, output_names
-
-def _strip_module_prefix(state_dict):
-    if not isinstance(state_dict, dict):
-        return state_dict
-
-    new_state_dict = {}
-    for k, v in state_dict.items():
-        if k.startswith('module.'):
-            new_state_dict[k[len('module.'):]] = v
-        else:
-            new_state_dict[k] = v
-    return new_state_dict
-
-
-def _looks_like_state_dict(obj):
-    if not isinstance(obj, dict) or len(obj) == 0:
-        return False
-
-    # Heuristic: raw state_dict usually maps string -> tensor
-    first_key = next(iter(obj.keys()))
-    first_val = obj[first_key]
-    return isinstance(first_key, str) and torch.is_tensor(first_val)
-
-
-def load_checkpoint_flexible(model, checkpoint_path, map_location='cpu'):
-    """
-    Supports:
-      1) mmcv/mmdet checkpoint with 'state_dict'
-      2) raw state_dict saved directly as .pth/.pt/.pkl
-      3) dict containing common weight keys
-    """
-    try:
-        checkpoint = load_checkpoint(model, checkpoint_path, map_location=map_location)
-        print('[Checkpoint] loaded with mmcv.load_checkpoint')
-        return checkpoint
-    except RuntimeError as e:
-        print('[Checkpoint] mmcv.load_checkpoint failed:', e)
-        print('[Checkpoint] trying raw torch.load fallback ...')
-
-    checkpoint = torch.load(checkpoint_path, map_location=map_location)
-
-    if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
-        state_dict = checkpoint['state_dict']
-    elif isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-        state_dict = checkpoint['model_state_dict']
-    elif isinstance(checkpoint, dict) and 'model' in checkpoint and isinstance(checkpoint['model'], dict):
-        state_dict = checkpoint['model']
-    elif _looks_like_state_dict(checkpoint):
-        state_dict = checkpoint
-    else:
-        raise RuntimeError(
-            f'Unsupported checkpoint format: {checkpoint_path}. '
-            f'Keys: {list(checkpoint.keys())[:20] if isinstance(checkpoint, dict) else type(checkpoint)}'
-        )
-
-    state_dict = _strip_module_prefix(state_dict)
-    missing, unexpected = model.load_state_dict(state_dict, strict=False)
-
-    print(f'[Checkpoint] loaded raw state_dict from: {checkpoint_path}')
-    print(f'[Checkpoint] missing keys   : {len(missing)}')
-    print(f'[Checkpoint] unexpected keys: {len(unexpected)}')
-
     return {
-        'meta': {},
-        'state_dict': state_dict,
-        'missing_keys': missing,
-        'unexpected_keys': unexpected,
+        "backend": "onnx",
+        "session": session,
+        "input_name": input_name,
+        "output_names": output_names,
+        "model": None,
     }
 
 
-def build_base_model(cfg, checkpoint_path=None, fuse_conv_bn_flag=False):
+def build_normal_model(cfg, checkpoint_path=None, fuse_conv_bn_flag=False):
     cfg.model.train_cfg = None
     model = build_model(cfg.model, test_cfg=cfg.get('test_cfg'))
 
@@ -191,12 +129,50 @@ def build_base_model(cfg, checkpoint_path=None, fuse_conv_bn_flag=False):
 
     checkpoint = None
     if checkpoint_path is not None:
-        checkpoint = load_checkpoint_flexible(model, checkpoint_path)
+        checkpoint = load_checkpoint(model, checkpoint_path, map_location='cpu')
 
     if fuse_conv_bn_flag:
         model = fuse_conv_bn(model)
 
     return model, checkpoint
+
+
+def load_aimet_quantized_model(
+    quant_weights,
+    device,
+    provider="CPUExecutionProvider",
+    opt_level="basic",
+):
+    print("Loading quantized model...")
+
+    ext = os.path.splitext(quant_weights)[1].lower()
+
+    # =========================
+    # Case 1: ONNX QDQ model
+    # =========================
+    if ext == ".onnx":
+        print("Detected ONNX model")
+        return load_onnx_session(
+            quant_weights,
+            provider=provider,
+            opt_level=opt_level,
+        )
+
+    # =========================
+    # Case 2: AIMET checkpoint
+    # =========================
+    print("Detected AIMET checkpoint")
+
+    sim = quantsim.load_checkpoint(quant_weights)
+    sim.model.to(device).eval()
+
+    return {
+        "backend": "torch",
+        "model": sim.model,
+        "session": None,
+        "input_name": None,
+        "output_names": None,
+    }
 
 
 def apply_checkpoint_metadata(model, checkpoint, dataset):
@@ -213,8 +189,7 @@ def apply_checkpoint_metadata(model, checkpoint, dataset):
 
 
 def wrap_with_aimet_trace(model):
-    wrapped_model = AimetTraceWrapper(model, aimet_forward_fn)
-    return wrapped_model
+    return AimetTraceWrapper(model, aimet_forward_fn)
 
 
 def run_normal_inference(model, data):
@@ -224,47 +199,40 @@ def run_normal_inference(model, data):
 
 def run_aimet_inference(model, data):
     with torch.no_grad():
-        return model(**data)
+        return model(return_loss=False, rescale=True, **data)
 
 
-def run_onnx_inference(session, input_names, data):
-    """
-    Minimal ONNX inference path.
-
-    Assumes first input is image tensor.
-    Extend mapping if your exported ONNX graph needs more inputs.
-    """
+def run_onnx_inference(session, input_name, data):
     img = data["img"]
     if isinstance(img, torch.Tensor):
         img_np = img.detach().cpu().numpy()
     else:
         img_np = np.asarray(img)
 
-    ort_inputs = {
-        input_names[0]: img_np
-    }
+    ort_inputs = {input_name: img_np}
     ort_outputs = session.run(None, ort_inputs)
 
-    # TODO:
-    # Convert ort_outputs into the same structured result format
-    # returned by the PyTorch model so dataset.evaluate(...) works.
+    # TODO: convert ort_outputs to the same format as torch inference output
     return ort_outputs
 
 
-def run_inference(model_obj, mode, data, onnx_input_names=None):
+def run_inference(model_obj, mode, data):
     if mode == 'normal':
-        return run_normal_inference(model_obj, data)
-    if mode == 'aimet':
-        return run_aimet_inference(model_obj, data)
-    if mode == 'onnx':
-        return run_onnx_inference(model_obj, onnx_input_names, data)
+        return run_normal_inference(model_obj["model"], data)
+    if mode == 'aimet_trace':
+        return run_aimet_inference(model_obj["model"], data)
+    if mode == 'aimet_quant':
+        if model_obj["backend"] == "onnx":
+            return run_onnx_inference(model_obj["session"], model_obj["input_name"], data)
+        return run_aimet_inference(model_obj["model"], data)
     raise ValueError(f'Unsupported inference mode: {mode}')
 
 
-def maybe_dump_heatmaps(model, mode):
-    if mode != 'normal':
+def maybe_dump_heatmaps(model_obj, mode):
+    if mode not in ['normal', 'aimet_trace']:
         return
 
+    model = model_obj["model"]
     if not hasattr(model, 'pts_bbox_head'):
         return
 
@@ -290,8 +258,7 @@ def maybe_dump_heatmaps(model, mode):
         else:
             heatmap_np = np.asarray(heatmap, dtype=np.float32)
 
-        heatmap_np = np.clip(heatmap_np, a_min=0.0, a_max=None).astype(
-            np.int32, copy=False)
+        heatmap_np = np.clip(heatmap_np, a_min=0.0, a_max=None).astype(np.int32, copy=False)
         if heatmap_np.ndim != 2 or heatmap_np.shape != (100, 100):
             continue
 
@@ -330,13 +297,12 @@ def maybe_dump_heatmaps(model, mode):
         plt.close(fig)
 
 
-def single_gpu_test(model,
+def single_gpu_test(model_obj,
                     data_loader,
                     max_samples=20,
-                    mode='normal',
-                    onnx_input_names=None):
-    if mode in ['normal', 'aimet'] and hasattr(model, 'eval'):
-        model.eval()
+                    mode='normal'):
+    if model_obj["backend"] == "torch" and hasattr(model_obj["model"], 'eval'):
+        model_obj["model"].eval()
 
     results = []
     dataset = data_loader.dataset
@@ -349,10 +315,9 @@ def single_gpu_test(model,
 
             data = extract_data_from_container(data)
             result = run_inference(
-                model_obj=model,
+                model_obj=model_obj,
                 mode=mode,
                 data=data,
-                onnx_input_names=onnx_input_names,
             )
 
             results.extend(result)
@@ -364,7 +329,7 @@ def single_gpu_test(model,
     except KeyboardInterrupt:
         print('Keyboard interrupt, exiting...')
 
-    maybe_dump_heatmaps(model, mode)
+    maybe_dump_heatmaps(model_obj, mode)
     return results
 
 
@@ -373,12 +338,12 @@ def parse_args():
         description='MMDet test (and eval) a model')
     parser.add_argument('--config', help='test config file path')
     parser.add_argument('--checkpoint', help='checkpoint file')
-    parser.add_argument('--onnx', help='onnx model file')
+    parser.add_argument('--quant-weights', help='aimet checkpoint or onnx quantized model')
     parser.add_argument(
         '--model-type',
         type=str,
         default='normal',
-        choices=['normal', 'aimet', 'onnx'],
+        choices=['normal', 'aimet_trace', 'aimet_quant'],
         help='inference backend type')
     parser.add_argument('--json_dir', help='json parent dir name file')
     parser.add_argument('--out', help='output result file in pickle format')
@@ -447,6 +412,10 @@ def parse_args():
     parser.add_argument('--return_model', type=int, default=0)
     parser.add_argument('--max_samples', type=int, default=None)
     parser.add_argument(
+        '--device',
+        type=str,
+        default='cuda' if torch.cuda.is_available() else 'cpu')
+    parser.add_argument(
         '--onnx-provider',
         type=str,
         default='CPUExecutionProvider',
@@ -471,14 +440,12 @@ def parse_args():
         warnings.warn('--options is deprecated in favor of --eval-options')
         args.eval_options = args.options
 
-    if args.model_type == 'onnx':
-        if args.onnx is None:
-            raise ValueError('--model-type onnx requires --onnx')
-        if args.checkpoint is not None:
-            raise ValueError('--model-type onnx does not use --checkpoint')
-    else:
+    if args.model_type == 'normal':
         if args.checkpoint is None:
-            raise ValueError(f'--model-type {args.model_type} requires --checkpoint')
+            raise ValueError('--model-type normal requires --checkpoint')
+    else:
+        if args.quant_weights is None:
+            raise ValueError(f'--model-type {args.model_type} requires --quant-weights')
 
     return args
 
@@ -514,7 +481,6 @@ def main():
                 _module_dir = os.path.dirname(plugin_dir)
                 _module_dir = _module_dir.split('/')
                 _module_path = _module_dir[0]
-
                 for m in _module_dir[1:]:
                     _module_path = _module_path + '.' + m
                 print(_module_path)
@@ -542,9 +508,7 @@ def main():
     elif isinstance(cfg.data.test, list):
         for ds_cfg in cfg.data.test:
             ds_cfg.test_mode = True
-        samples_per_gpu = max(
-            [ds_cfg.pop('samples_per_gpu', 1) for ds_cfg in cfg.data.test]
-        )
+        samples_per_gpu = max([ds_cfg.pop('samples_per_gpu', 1) for ds_cfg in cfg.data.test])
         if samples_per_gpu > 1:
             for ds_cfg in cfg.data.test:
                 ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
@@ -565,34 +529,56 @@ def main():
     )
 
     mode = args.model_type
-    onnx_input_names = None
 
-    if mode == 'onnx':
-        model, onnx_input_names, _ = load_onnx_session(
-            args.onnx,
-            provider=args.onnx_provider,
-            opt_level=args.onnx_opt_level,
-        )
-    else:
-        model, checkpoint = build_base_model(
+    if mode == 'normal':
+        model, checkpoint = build_normal_model(
             cfg=cfg,
             checkpoint_path=args.checkpoint,
             fuse_conv_bn_flag=args.fuse_conv_bn,
         )
         apply_checkpoint_metadata(model, checkpoint, dataset)
+        model_obj = {
+            "backend": "torch",
+            "model": model,
+            "session": None,
+            "input_name": None,
+            "output_names": None,
+        }
 
-        if mode == 'aimet':
-            model = wrap_with_aimet_trace(model)
+    elif mode == 'aimet_trace':
+        model, checkpoint = build_normal_model(
+            cfg=cfg,
+            checkpoint_path=args.quant_weights,
+            fuse_conv_bn_flag=args.fuse_conv_bn,
+        )
+        apply_checkpoint_metadata(model, checkpoint, dataset)
+        model = wrap_with_aimet_trace(model)
+        model_obj = {
+            "backend": "torch",
+            "model": model,
+            "session": None,
+            "input_name": None,
+            "output_names": None,
+        }
+
+    elif mode == 'aimet_quant':
+        model_obj = load_aimet_quantized_model(
+            quant_weights=args.quant_weights,
+            device=args.device,
+            provider=args.onnx_provider,
+            opt_level=args.onnx_opt_level,
+        )
+    else:
+        raise ValueError(f'Unsupported model type: {mode}')
 
     if args.return_model:
-        return model, dataset
+        return model_obj, dataset
 
     outputs = single_gpu_test(
-        model,
+        model_obj,
         data_loader,
         args.max_samples,
         mode=mode,
-        onnx_input_names=onnx_input_names,
     )
 
     outputs = {'bbox_results': outputs}
