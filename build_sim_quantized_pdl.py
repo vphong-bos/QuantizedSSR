@@ -101,23 +101,23 @@ def build_dataset(cfg, default_args=None):
 # -----------------------------------------------------------------------------
 # Data handling from the detector script
 # -----------------------------------------------------------------------------
-def extract_data_from_container(data: Dict[str, Any]) -> Dict[str, Any]:
-    data = dict(data)
+def extract_data_from_container(data):
+    """Extract data from DataContainer."""
     data["img_metas"] = data["img_metas"][0].data
+    # data["points"] = data["points"][0].data
     data["gt_bboxes_3d"] = data["gt_bboxes_3d"][0].data
     data["gt_labels_3d"] = data["gt_labels_3d"][0].data
     data["img"] = data["img"][0].data
+    # data["fut_valid_flag"] = data["fut_valid_flag"][0].data
     data["ego_his_trajs"] = data["ego_his_trajs"][0].data
     data["ego_fut_trajs"] = data["ego_fut_trajs"][0].data
+    # data["ego_fut_masks"] = data["ego_fut_masks"][0].data
     data["ego_fut_cmd"] = data["ego_fut_cmd"][0].data
     data["ego_lcf_feat"] = data["ego_lcf_feat"][0].data
     data["gt_attr_labels"] = data["gt_attr_labels"][0].data
+    # data["gt_attr_labels"] = data["gt_attr_labels"][0]
     data["map_gt_labels_3d"] = data["map_gt_labels_3d"].data[0]
     data["map_gt_bboxes_3d"] = data["map_gt_bboxes_3d"].data[0]
-    
-    if hasattr(data["img"], "dim") and data["img"].dim() == 4:
-        data["img"] = data["img"].unsqueeze(0)
-
     return data
 
 
@@ -603,8 +603,12 @@ def main(args):
     first_batch = next(iter(data_loader))
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
     dummy_input = prepared_batch["img"]
-    print(prepared_batch)
-    print(type(prepared_batch))
+    print(type(prepared_batch["img"]))
+    print(prepared_batch["img"].shape)
+    print(type(prepared_batch["img_metas"]))
+    print(len(prepared_batch["img_metas"]))
+    print(type(prepared_batch["img_metas"][0]))
+    print(len(prepared_batch["img_metas"][0]["lidar2img"]))
 
     print("Wrapping model for AIMET tracing...")
     wrapped_model = AimetTraceWrapper(model=model, initial_batch=prepared_batch).to(args.device).eval()
