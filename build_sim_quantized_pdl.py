@@ -603,7 +603,8 @@ def main(args):
     first_batch = next(iter(data_loader))
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
     dummy_input = prepared_batch["img"]
-    print(dummy_input.shape)
+    print(prepare_batch)
+    print(type(prepared_batch))
 
     print("Wrapping model for AIMET tracing...")
     wrapped_model = AimetTraceWrapper(model=model, initial_batch=prepared_batch).to(args.device).eval()
