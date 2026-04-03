@@ -80,7 +80,7 @@ def parse_args():
     parser.add_argument(
         '--graph_optimization_level',
         choices=["disable_all", "basic", "extended", "all"],
-        default="disable_all"
+        default="disable_all",
         help='Quantization optimization level, only work with onnx format model')
     parser.add_argument(
         '--device',
