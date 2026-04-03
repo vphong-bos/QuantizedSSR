@@ -136,31 +136,96 @@ def prepare_batch(batch: Dict[str, Any], device: torch.device) -> Dict[str, Any]
 # -----------------------------------------------------------------------------
 # AIMET wrappers / callbacks in the user's style
 # -----------------------------------------------------------------------------
+# class AimetTraceWrapper(torch.nn.Module):
+#     """
+#     Wrap the detector so AIMET sees a conventional forward(img) API.
+
+#     The rest of the batch metadata is cached from the latest dataloader sample.
+#     This mirrors your segmentation-side AimetTraceWrapper idea, but adapted to
+#     detector inference where img is only one field of a larger batch dict.
+#     """
+
+#     def __init__(self, model: torch.nn.Module, initial_batch: Dict[str, Any]):
+#         super().__init__()
+#         self.model = model
+#         self.runtime_batch = initial_batch
+
+#     def set_batch(self, batch: Dict[str, Any]) -> None:
+#         self.runtime_batch = batch
+
+#     def forward(self, images):
+#         batch = dict(self.runtime_batch)
+#         batch["img"] = images
+#         out = self.model(return_loss=False, rescale=True, **batch)
+#         return self._make_traceable_output(out)
+
+#     @staticmethod
+#     def _make_traceable_output(out: Any):
+#         if torch.is_tensor(out):
+#             return out
+
+#         if isinstance(out, dict):
+#             tensor_dict = {k: v for k, v in out.items() if torch.is_tensor(v)}
+#             if len(tensor_dict) == 1:
+#                 return next(iter(tensor_dict.values()))
+#             if tensor_dict:
+#                 return tensor_dict
+
+#         if isinstance(out, (list, tuple)):
+#             gathered = []
+#             for item in out:
+#                 if torch.is_tensor(item):
+#                     gathered.append(item)
+#                 elif isinstance(item, dict):
+#                     for value in item.values():
+#                         if torch.is_tensor(value):
+#                             gathered.append(value)
+#             if len(gathered) == 1:
+#                 return gathered[0]
+#             if gathered:
+#                 return tuple(gathered)
+
+#         raise RuntimeError(
+#             "Model output does not expose tensors suitable for AIMET tracing. "
+#             "You may need to wrap a deeper internal submodule for this model."
+#         )
+
+
+# def aimet_forward_fn(model, inputs):
+#     if isinstance(inputs, dict):
+#         images = inputs["img"]
+#     elif isinstance(inputs, (list, tuple)):
+#         images = inputs[0]
+#     else:
+#         images = inputs
+
+#     images = images.to(next(model.parameters()).device)
+#     return model(images)
+
 class AimetTraceWrapper(torch.nn.Module):
-    """
-    Wrap the detector so AIMET sees a conventional forward(img) API.
-
-    The rest of the batch metadata is cached from the latest dataloader sample.
-    This mirrors your segmentation-side AimetTraceWrapper idea, but adapted to
-    detector inference where img is only one field of a larger batch dict.
-    """
-
-    def __init__(self, model: torch.nn.Module, initial_batch: Dict[str, Any]):
+    def __init__(self, model):
         super().__init__()
         self.model = model
-        self.runtime_batch = initial_batch
+        self.runtime_batch = None
 
-    def set_batch(self, batch: Dict[str, Any]) -> None:
+    def set_batch(self, batch):
         self.runtime_batch = batch
 
-    def forward(self, images):
-        batch = dict(self.runtime_batch)
-        batch["img"] = images
-        out = self.model(return_loss=False, rescale=True, **batch)
+        meta0 = batch["img_metas"][0]
+        import numpy as np
+
+        print("img shape:", batch["img"].shape)
+        print("len(img_metas):", len(batch["img_metas"]))
+        print("lidar2img shape:", np.asarray(meta0["lidar2img"]).shape)
+        print("lidar2img size:", np.asarray(meta0["lidar2img"]).size)
+
+    def forward(self, _dummy):
+        assert self.runtime_batch is not None
+        out = self.model(return_loss=False, rescale=True, **self.runtime_batch)
         return self._make_traceable_output(out)
 
     @staticmethod
-    def _make_traceable_output(out: Any):
+    def _make_traceable_output(out):
         if torch.is_tensor(out):
             return out
 
@@ -185,22 +250,10 @@ class AimetTraceWrapper(torch.nn.Module):
             if gathered:
                 return tuple(gathered)
 
-        raise RuntimeError(
-            "Model output does not expose tensors suitable for AIMET tracing. "
-            "You may need to wrap a deeper internal submodule for this model."
-        )
-
+        raise RuntimeError("Model output does not expose tensors suitable for AIMET tracing.")
 
 def aimet_forward_fn(model, inputs):
-    if isinstance(inputs, dict):
-        images = inputs["img"]
-    elif isinstance(inputs, (list, tuple)):
-        images = inputs[0]
-    else:
-        images = inputs
-
-    images = images.to(next(model.parameters()).device)
-    return model(images)
+    return model(torch.zeros(1, device=next(model.parameters()).device))
 
 
 @torch.no_grad()
@@ -598,8 +651,13 @@ def main(args):
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
     dummy_input = prepared_batch["img"]
 
-    print("Wrapping model for AIMET tracing...")
-    wrapped_model = AimetTraceWrapper(model=model, initial_batch=prepared_batch).to(args.device).eval()
+    # print("Wrapping model for AIMET tracing...")
+    # wrapped_model = AimetTraceWrapper(model=model, initial_batch=prepared_batch).to(args.device).eval()
+
+    wrapped_model = AimetTraceWrapper(model=model).to(args.device).eval()
+    wrapped_model.set_batch(prepared_batch)
+
+    dummy_input = torch.zeros(1, device=args.device)
 
     maybe_run_cle(wrapped_model, dummy_input, args.enable_cle)
     maybe_run_bn_fold(wrapped_model, dummy_input, args.enable_bn_fold)
