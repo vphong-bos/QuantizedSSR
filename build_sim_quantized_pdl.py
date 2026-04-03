@@ -211,8 +211,6 @@ class AimetTraceWrapper(torch.nn.Module):
     def set_batch(self, batch):
         self.runtime_batch = batch
 
-        print(batch)
-
     def forward(self, _dummy):
         batch = self.runtime_batch
         assert batch is not None, "Batch not set"
@@ -277,12 +275,27 @@ def run_model_on_batch(model: AimetTraceWrapper, batch: Dict[str, Any], device: 
 
 @torch.no_grad()
 def calibration_forward_pass(model, callback_args):
-    calib_loader, device, max_batches = callback_args
+    calib_loader, device, max_batches, max_samples = callback_args
 
     model.eval()
+    seen_samples = 0
+    dummy = torch.zeros(1, device=device)
+
     for batch_idx, batch in enumerate(calib_loader):
-        _ = run_model_on_batch(model, batch, device)
+        prepared = prepare_batch(batch, device)
+        model.set_batch(prepared)
+        _ = model(dummy)
+
+        batch_img = prepared["img"]
+        if isinstance(batch_img, list):
+            batch_img = batch_img[0]
+
+        current_bs = batch_img.size(0) if torch.is_tensor(batch_img) else 1
+        seen_samples += current_bs
+
         if max_batches is not None and max_batches > 0 and batch_idx + 1 >= max_batches:
+            break
+        if max_samples is not None and max_samples > 0 and seen_samples >= max_samples:
             break
 
 
@@ -620,6 +633,13 @@ def parse_args(argv=None):
     parser.add_argument("--no_export", action="store_true", help="skip AIMET export")
     parser.add_argument("--export_onnx", action="store_true", help="also export AIMET QDQ ONNX")
 
+    parser.add_argument(
+        "--calib_max_samples",
+        type=int,
+        default=-1,
+        help="maximum number of calibration samples, -1 means use calib_batches only"
+    )
+
     return parser.parse_args(argv)
 
 
@@ -659,18 +679,26 @@ def main(args):
     model = maybe_fuse_conv_bn(model, args.fuse_conv_bn)
     model = model.to(args.device).eval()
 
-    first_batch = next(iter(data_loader))
-    prepared_batch = prepare_batch(first_batch, torch.device(args.device))
-    dummy_input = prepared_batch["img"]
+    # first_batch = next(iter(data_loader))
+    # prepared_batch = prepare_batch(first_batch, torch.device(args.device))
+    # dummy_input = prepared_batch["img"]
 
     # print("Wrapping model for AIMET tracing...")
     # wrapped_model = AimetTraceWrapper(model=model, initial_batch=prepared_batch).to(args.device).eval()
 
+    first_batch = next(iter(data_loader))
+    prepared_batch = prepare_batch(first_batch, torch.device(args.device))
+
     wrapped_model = AimetTraceWrapper(model=model).to(args.device).eval()
     wrapped_model.set_batch(prepared_batch)
 
-    # dummy input is irrelevant now
-    dummy_input = torch.zeros(1, device=args.device)
+    real_img = prepared_batch["img"]
+    if isinstance(real_img, list):
+        assert len(real_img) == 1, f"Unexpected img list length: {len(real_img)}"
+        real_img = real_img[0]
+
+    dummy_input = torch.randn_like(real_img)
+
 
     maybe_run_cle(wrapped_model, dummy_input, args.enable_cle)
     maybe_run_bn_fold(wrapped_model, dummy_input, args.enable_bn_fold)
@@ -719,7 +747,12 @@ def main(args):
     calib_start = time.time()
     sim.compute_encodings(
         forward_pass_callback=calibration_forward_pass,
-        forward_pass_callback_args=(data_loader, torch.device(args.device), args.calib_batches),
+        forward_pass_callback_args=(
+            data_loader,
+            torch.device(args.device),
+            args.calib_batches,
+            args.calib_max_samples,
+        ),
     )
     calib_time = time.time() - calib_start
     print(f"Calibration finished in {calib_time:.2f} s")
