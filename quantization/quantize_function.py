@@ -20,27 +20,18 @@ class AimetTraceWrapper(torch.nn.Module):
     def set_batch(self, batch):
         self.runtime_batch = batch
 
-    def forward(self, _dummy):
+    def forward(self, img):
         batch = self.runtime_batch
-        assert batch is not None, "Batch not set"
-
-        img = batch["img"]
         img_metas = batch["img_metas"]
 
         if isinstance(img, list):
-            assert len(img) == 1, f"Unexpected img list length: {len(img)}"
             img = img[0]
 
         feats = self.model.extract_feat(img=img, img_metas=img_metas)
 
         if isinstance(feats, (list, tuple)):
-            for f in feats:
-                if torch.is_tensor(f):
-                    return f
-        elif torch.is_tensor(feats):
-            return feats
-
-        raise RuntimeError(f"extract_feat returned unsupported type: {type(feats)}")
+            return feats[0]
+        return feats
     
 def aimet_forward_fn(model, inputs):
     return model(torch.zeros(1, device=next(model.parameters()).device))
