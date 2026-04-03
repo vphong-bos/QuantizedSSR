@@ -11,6 +11,28 @@ from aimet_torch.quantsim import QuantizationSimModel
 from quantization.registered_ops import QuantizedLinear
 from evaluation.eval_dataset import extract_data
 
+# class AimetTraceWrapper(torch.nn.Module):
+#     def __init__(self, model):
+#         super().__init__()
+#         self.model = model
+#         self.runtime_batch = None
+
+#     def set_batch(self, batch):
+#         self.runtime_batch = batch
+
+#     def forward(self, img):
+#         batch = self.runtime_batch
+#         img_metas = batch["img_metas"]
+
+#         if isinstance(img, list):
+#             img = img[0]
+
+#         feats = self.model.extract_feat(img=img, img_metas=img_metas)
+
+#         if isinstance(feats, (list, tuple)):
+#             return feats[0]
+#         return feats
+    
 class AimetTraceWrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
@@ -22,17 +44,30 @@ class AimetTraceWrapper(torch.nn.Module):
 
     def forward(self, img):
         batch = self.runtime_batch
+        assert batch is not None, "Batch not set"
+
         img_metas = batch["img_metas"]
 
         if isinstance(img, list):
+            assert len(img) == 1, f"Unexpected img list length: {len(img)}"
             img = img[0]
 
-        feats = self.model.extract_feat(img=img, img_metas=img_metas)
+        return self.model(
+            return_loss=False,
+            rescale=True,
+            img=img,
+            img_metas=img_metas,
+            gt_bboxes_3d=batch.get("gt_bboxes_3d", None),
+            gt_labels_3d=batch.get("gt_labels_3d", None),
+            ego_his_trajs=batch.get("ego_his_trajs", None),
+            ego_fut_trajs=batch.get("ego_fut_trajs", None),
+            ego_fut_cmd=batch.get("ego_fut_cmd", None),
+            ego_lcf_feat=batch.get("ego_lcf_feat", None),
+            gt_attr_labels=batch.get("gt_attr_labels", None),
+            map_gt_labels_3d=batch.get("map_gt_labels_3d", None),
+            map_gt_bboxes_3d=batch.get("map_gt_bboxes_3d", None),
+        )
 
-        if isinstance(feats, (list, tuple)):
-            return feats[0]
-        return feats
-    
 def aimet_forward_fn(model, inputs):
     return model(torch.zeros(1, device=next(model.parameters()).device))
 

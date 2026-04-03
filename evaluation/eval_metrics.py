@@ -11,20 +11,16 @@ def get_model_result(model_obj, data):
 
     if backend == "torch":
         model = model_obj["model"]
-
         with torch.no_grad():
             if hasattr(model, "set_batch"):
                 model.set_batch(data)
-
                 img = data["img"]
                 if isinstance(img, list):
                     assert len(img) == 1, f"Unexpected img list length: {len(img)}"
                     img = img[0]
-
                 result = model(img)
             else:
                 result = model(return_loss=False, rescale=True, **data)
-
         return result
 
     elif backend == "onnx":
