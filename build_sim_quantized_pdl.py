@@ -165,6 +165,10 @@ class AimetTraceWrapper(torch.nn.Module):
         batch = dict(self.runtime_batch)
         batch["img"] = images
 
+        if isinstance(batch.get("img_metas"), list):
+            if len(batch["img_metas"]) > 0 and isinstance(batch["img_metas"][0], dict):
+                batch["img_metas"] = [batch["img_metas"]]
+
         out = self.model(return_loss=False, rescale=True, **batch)
         return self._make_traceable_output(out)
 
