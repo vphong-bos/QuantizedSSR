@@ -164,24 +164,10 @@ class AimetTraceWrapper(torch.nn.Module):
     def forward(self, images):
         batch = dict(self.runtime_batch)
         batch["img"] = images
-        print("type(batch['img']) =", type(batch["img"]))
-        if hasattr(batch["img"], "shape"):
-            print("img shape =", batch["img"].shape)
-        elif isinstance(batch["img"], list):
-            print("img len =", len(batch["img"]))
-            if len(batch["img"]) and hasattr(batch["img"][0], "shape"):
-                print("img[0] shape =", batch["img"][0].shape)
 
-        print("type(batch['img_metas']) =", type(batch["img_metas"]))
-        print("len(img_metas) =", len(batch["img_metas"]) if isinstance(batch["img_metas"], list) else "not list")
+        if isinstance(batch.get("img_metas"), list) and len(batch["img_metas"]) > 0 and isinstance(batch["img_metas"][0], dict):
+            batch["img_metas"] = [batch["img_metas"]]
 
-        first_meta = batch["img_metas"][0] if isinstance(batch["img_metas"], list) else batch["img_metas"]
-        print("type(first_meta) =", type(first_meta))
-        if isinstance(first_meta, dict) and "lidar2img" in first_meta:
-            import numpy as np
-            l2i = first_meta["lidar2img"]
-            print("lidar2img type =", type(l2i))
-            print("lidar2img shape =", np.asarray(l2i).shape)
         out = self.model(return_loss=False, rescale=True, **batch)
         return self._make_traceable_output(out)
 
@@ -622,7 +608,7 @@ def main(args):
 
     first_batch = next(iter(data_loader))
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
-    dummy_input = (prepared_batch["img"],)
+    dummy_input = (prepared_batch["img"][0],)
 
     print("Wrapping model for AIMET tracing...")
     wrapped_model = AimetTraceWrapper(model=model, initial_batch=prepared_batch).to(args.device).eval()
