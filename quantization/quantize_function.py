@@ -10,7 +10,6 @@ from aimet_torch.quantsim import QuantizationSimModel
 
 from quantization.registered_ops import QuantizedLinear
 
-
 from typing import Optional, Dict, Any
 
 class AimetTraceWrapper(nn.Module):

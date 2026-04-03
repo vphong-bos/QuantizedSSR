@@ -56,9 +56,7 @@ from mmdet.datasets import DATASETS, replace_ImageToTensor
 from evaluation.eval_dataset import build_eval_loader
 from evaluation.eval_metrics import evaluate_model
 from ssr.projects.mmdet3d_plugin.SSR.model import build_model
-from quantization.quantize_function import load_quantized_model
-
-from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn, prepare_batch
+from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn, prepare_batch, create_quant_sim
 
 from aimet_common.defs import QuantScheme
 from aimet_common.utils import CallbackFunc
@@ -93,66 +91,37 @@ warnings.filterwarnings("ignore")
 OBJECTSAMPLERS = Registry("Object sampler")
 
 
-def analyzer_forward_pass(model, callback_args):
-    calib_loader, device, max_batches = callback_args
-    calibration_forward_pass(model, (calib_loader, device, max_batches))
+# def analyzer_forward_pass(model, callback_args):
+#     calib_loader, device, max_batches = callback_args
+#     calibration_forward_pass(model, (calib_loader, device, max_batches))
 
 
-def analyzer_eval_callback(model, callback_args):
-    eval_loader, device, max_batches = callback_args
-    model.eval()
+# def analyzer_eval_callback(model, callback_args):
+#     eval_loader, device, max_batches = callback_args
+#     model.eval()
 
-    outputs = []
-    for batch_idx, batch in enumerate(eval_loader):
-        result = run_model_on_batch(model, batch, device)
-        if isinstance(result, list):
-            outputs.extend(result)
-        else:
-            outputs.append(result)
-        if max_batches is not None and max_batches > 0 and batch_idx + 1 >= max_batches:
-            break
+#     outputs = []
+#     for batch_idx, batch in enumerate(eval_loader):
+#         result = run_model_on_batch(model, batch, device)
+#         if isinstance(result, list):
+#             outputs.extend(result)
+#         else:
+#             outputs.append(result)
+#         if max_batches is not None and max_batches > 0 and batch_idx + 1 >= max_batches:
+#             break
 
-    # AIMET QuantAnalyzer expects a scalar score. We keep this generic by
-    # returning negative latency-free proxy if dataset.evaluate is unavailable.
-    dataset = eval_loader.dataset
-    try:
-        metrics = dataset.evaluate(outputs, metric=["bbox"])
-        if isinstance(metrics, dict) and metrics:
-            first_val = next(iter(metrics.values()))
-            return float(first_val)
-    except Exception as exc:
-        print(f"[WARN] analyzer_eval_callback dataset.evaluate failed: {exc}")
+#     # AIMET QuantAnalyzer expects a scalar score. We keep this generic by
+#     # returning negative latency-free proxy if dataset.evaluate is unavailable.
+#     dataset = eval_loader.dataset
+#     try:
+#         metrics = dataset.evaluate(outputs, metric=["bbox"])
+#         if isinstance(metrics, dict) and metrics:
+#             first_val = next(iter(metrics.values()))
+#             return float(first_val)
+#     except Exception as exc:
+#         print(f"[WARN] analyzer_eval_callback dataset.evaluate failed: {exc}")
 
-    return float(len(outputs))
-
-
-# -----------------------------------------------------------------------------
-# Evaluation helpers
-# -----------------------------------------------------------------------------
-@torch.no_grad()
-def run_eval(model: AimetTraceWrapper, data_loader, device: torch.device, max_batches: int = -1):
-    model.eval()
-    outputs = []
-    total = len(data_loader.dataset) if max_batches < 0 else min(len(data_loader.dataset), max_batches)
-    prog_bar = mmcv.ProgressBar(total)
-
-    for batch_idx, batch in enumerate(data_loader):
-        result = run_model_on_batch(model, batch, device)
-        if isinstance(result, list):
-            outputs.extend(result)
-            batch_size = len(result)
-        else:
-            outputs.append(result)
-            batch_size = 1
-
-        for _ in range(batch_size):
-            prog_bar.update()
-
-        if max_batches > 0 and batch_idx + 1 >= max_batches:
-            break
-
-    return outputs
-
+#     return float(len(outputs))
 
 # -----------------------------------------------------------------------------
 # AIMET stages
@@ -241,50 +210,50 @@ def maybe_run_seq_mse(
     print("Sequential MSE finished.")
 
 
-def maybe_run_quant_analyzer(
-    wrapped_model: AimetTraceWrapper,
-    dummy_input: torch.Tensor,
-    calib_loader,
-    enabled: bool,
-    quant_analyzer_dir: str,
-    analyzer_num_batches: Optional[int],
-    device: str,
-    eval_loader=None,
-    eval_max_batches: int = -1,
-) -> None:
-    if not enabled:
-        return
+# def maybe_run_quant_analyzer(
+#     wrapped_model: AimetTraceWrapper,
+#     dummy_input: torch.Tensor,
+#     calib_loader,
+#     enabled: bool,
+#     quant_analyzer_dir: str,
+#     analyzer_num_batches: Optional[int],
+#     device: str,
+#     eval_loader=None,
+#     eval_max_batches: int = -1,
+# ) -> None:
+#     if not enabled:
+#         return
 
-    print("Running AIMET QuantAnalyzer...")
-    os.makedirs(quant_analyzer_dir, exist_ok=True)
+#     print("Running AIMET QuantAnalyzer...")
+#     os.makedirs(quant_analyzer_dir, exist_ok=True)
 
-    forward_pass_callback = CallbackFunc(
-        analyzer_forward_pass,
-        func_callback_args=(calib_loader, torch.device(device), analyzer_num_batches),
-    )
+#     forward_pass_callback = CallbackFunc(
+#         analyzer_forward_pass,
+#         func_callback_args=(calib_loader, torch.device(device), analyzer_num_batches),
+#     )
 
-    eval_callback = None
-    if eval_loader is not None:
-        eval_callback = CallbackFunc(
-            analyzer_eval_callback,
-            func_callback_args=(eval_loader, torch.device(device), eval_max_batches),
-        )
+    # eval_callback = None
+    # if eval_loader is not None:
+    #     eval_callback = CallbackFunc(
+    #         analyzer_eval_callback,
+    #         func_callback_args=(eval_loader, torch.device(device), eval_max_batches),
+    #     )
 
-    analyzer = QuantAnalyzer(
-        model=wrapped_model,
-        dummy_input=dummy_input,
-        forward_pass_callback=forward_pass_callback,
-        eval_callback=eval_callback,
-        modules_to_ignore=None,
-    )
+    # analyzer = QuantAnalyzer(
+    #     model=wrapped_model,
+    #     dummy_input=dummy_input,
+    #     forward_pass_callback=forward_pass_callback,
+    #     eval_callback=eval_callback,
+    #     modules_to_ignore=None,
+    # )
 
-    analyzer.analyze(
-        quant_scheme="tf_enhanced",
-        default_param_bw=8,
-        default_output_bw=8,
-        config_path=None,
-        results_dir=quant_analyzer_dir,
-    )
+    # analyzer.analyze(
+    #     quant_scheme="tf_enhanced",
+    #     default_param_bw=8,
+    #     default_output_bw=8,
+    #     config_path=None,
+    #     results_dir=quant_analyzer_dir,
+    # )
 
 
 # -----------------------------------------------------------------------------
@@ -386,23 +355,17 @@ def main(args):
     maybe_run_cle(wrapped_model, dummy_input, args.enable_cle)
     maybe_run_bn_fold(wrapped_model, dummy_input, args.enable_bn_fold)
 
-    if args.run_fp32_eval:
-        print("Running FP32 evaluation...")
-        fp32_outputs = run_eval(wrapped_model, data_loader, torch.device(args.device), args.eval_batches)
-        fp32_metrics = dataset.evaluate(fp32_outputs, metric=args.eval_metric)
-        print("[FP32]", fp32_metrics)
-
-    maybe_run_quant_analyzer(
-        wrapped_model=wrapped_model,
-        dummy_input=dummy_input,
-        calib_loader=data_loader,
-        enabled=args.run_quant_analyzer,
-        quant_analyzer_dir=osp.join(args.work_dir, args.quant_analyzer_dir),
-        analyzer_num_batches=args.analyzer_num_batches,
-        device=args.device,
-        eval_loader=data_loader if args.run_fp32_eval else None,
-        eval_max_batches=args.eval_batches,
-    )
+    # maybe_run_quant_analyzer(
+    #     wrapped_model=wrapped_model,
+    #     dummy_input=dummy_input,
+    #     calib_loader=data_loader,
+    #     enabled=args.run_quant_analyzer,
+    #     quant_analyzer_dir=osp.join(args.work_dir, args.quant_analyzer_dir),
+    #     analyzer_num_batches=args.analyzer_num_batches,
+    #     device=args.device,
+    #     eval_loader=data_loader if args.run_fp32_eval else None,
+    #     eval_max_batches=args.eval_batches,
+    # )
 
     print("Creating AIMET QuantizationSimModel...")
     sim = create_quant_sim(
