@@ -126,9 +126,17 @@ def move_to_device(obj: Any, device: torch.device) -> Any:
         return {k: move_to_device(v, device) for k, v in obj.items()}
     return obj
 
+def normalize_batch(batch):
+    # img_metas: [[meta_dict]] -> [meta_dict]
+    if isinstance(batch.get("img_metas"), list) and len(batch["img_metas"]) == 1:
+        if isinstance(batch["img_metas"][0], list):
+            batch["img_metas"] = batch["img_metas"][0]
 
-def prepare_batch(batch: Dict[str, Any], device: torch.device) -> Dict[str, Any]:
+    return batch
+
+def prepare_batch(batch, device):
     batch = extract_data_from_container(batch)
+    batch = normalize_batch(batch)
     batch = move_to_device(batch, device)
     return batch
 
