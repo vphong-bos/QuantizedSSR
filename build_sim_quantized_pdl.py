@@ -330,7 +330,7 @@ def main(args):
     cfg, dataset, data_loader = build_eval_loader(args.config_path)
 
     print("Loading FP32 model...")
-    model = load_default_model(cfg, args.checkpoint, dataset, args.fuse_conv_bn, args.device)
+    model, _ = load_default_model(cfg, args.checkpoint, dataset, args.fuse_conv_bn, args.device)
     model = model.to(args.device).eval()
 
     first_batch = next(iter(data_loader))
