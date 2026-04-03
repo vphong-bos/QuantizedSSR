@@ -230,8 +230,7 @@ def run_normal_inference(model, data):
 
 def run_aimet_inference(model, data):
     with torch.no_grad():
-        return model(return_loss=False, rescale=True, **data)
-
+        return model(**data)
 
 def run_onnx_inference(session, input_name, data):
     img = data["img"]
