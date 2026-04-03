@@ -20,7 +20,7 @@ import torch.nn as nn
 import torch
 import torch.nn as nn
 
-class AimetTraceWrapper(nn.Module):
+class AimetTraceWrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
         self.model = model
@@ -29,86 +29,28 @@ class AimetTraceWrapper(nn.Module):
     def set_batch(self, batch):
         self.runtime_batch = batch
 
-    def forward(self, *args, return_loss=False, rescale=True, **kwargs):
-        """
-        Supports both:
-          1) AIMET tracing:
-               wrapper(images)
-          2) Normal detector eval:
-               wrapper(return_loss=False, rescale=True, **data)
-        """
+    def forward(self, _dummy):
+        batch = self.runtime_batch
+        assert batch is not None, "Batch not set"
 
-        # Case 1: AIMET trace / QuantSim dummy_input path
-        if len(args) == 1 and torch.is_tensor(args[0]):
-            if self.runtime_batch is None:
-                raise RuntimeError(
-                    "AimetTraceWrapper.forward(images) called before set_batch()."
-                )
+        img = batch["img"]
+        img_metas = batch["img_metas"]
 
-            batch = dict(self.runtime_batch)
-            batch["img"] = args[0]
-            outputs = self.model(return_loss=False, rescale=True, **batch)
-            return self._make_traceable_output(outputs)
+        if isinstance(img, list):
+            assert len(img) == 1, f"Unexpected img list length: {len(img)}"
+            img = img[0]
 
-        # Case 2: Normal eval path with full detector batch
-        if kwargs:
-            outputs = self.model(return_loss=return_loss, rescale=rescale, **kwargs)
-            return outputs
+        feats = self.model.extract_feat(img=img, img_metas=img_metas)
 
-        # Case 3: fallback to cached batch
-        if self.runtime_batch is not None:
-            outputs = self.model(
-                return_loss=False,
-                rescale=True,
-                **self.runtime_batch,
-            )
-            return self._make_traceable_output(outputs)
+        if isinstance(feats, (list, tuple)):
+            for f in feats:
+                if torch.is_tensor(f):
+                    return f
+        elif torch.is_tensor(feats):
+            return feats
 
-        raise RuntimeError("No valid inputs were provided to AimetTraceWrapper.forward().")
-
-    def _make_traceable_output(self, outputs):
-        if torch.is_tensor(outputs):
-            return outputs
-
-        if isinstance(outputs, dict):
-            tensor_dict = {k: v for k, v in outputs.items() if torch.is_tensor(v)}
-            if len(tensor_dict) == 1:
-                return next(iter(tensor_dict.values()))
-            if tensor_dict:
-                return tuple(tensor_dict.values())
-
-        if isinstance(outputs, (list, tuple)):
-            gathered = []
-            for item in outputs:
-                if torch.is_tensor(item):
-                    gathered.append(item)
-                elif isinstance(item, dict):
-                    for value in item.values():
-                        if torch.is_tensor(value):
-                            gathered.append(value)
-
-            if len(gathered) == 1:
-                return gathered[0]
-            if gathered:
-                return tuple(gathered)
-
-        raise RuntimeError(
-            "Model output does not expose tensors suitable for AIMET tracing."
-        )
+        raise RuntimeError(f"extract_feat returned unsupported type: {type(feats)}")
     
-def aimet_forward_fn(model, data):
-    return model(return_loss=False, rescale=True, **data)
-# import copy
-
-# def aimet_forward_fn(model, img, static_inputs):
-#     if not isinstance(static_inputs, dict):
-#         raise TypeError(f"static_inputs must be dict, got {type(static_inputs)}")
-
-#     data = copy.copy(static_inputs)
-#     data["img"] = data
-
-#     return model(return_loss=False, rescale=True, **data)
-
 def move_to_device(obj: Any, device: torch.device) -> Any:
     if torch.is_tensor(obj):
         return obj.to(device, non_blocking=True)
