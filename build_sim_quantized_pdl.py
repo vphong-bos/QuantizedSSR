@@ -269,6 +269,7 @@ def maybe_run_seq_mse(
 def parse_args(argv=None):
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--config", type=str, default=None, help="SSR model's config")
     parser.add_argument("--checkpoint", type=str, required=True, help="checkpoint file")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--work_dir", type=str, default="quantized_export")
@@ -338,7 +339,7 @@ def main(args):
         set_random_seed(args.seed, deterministic=args.deterministic)
 
     print("Building dataset / dataloader...")
-    cfg, dataset, data_loader = build_eval_loader(args.config_path)
+    cfg, dataset, data_loader = build_eval_loader(args.config)
 
     print("Loading FP32 model...")
     model, _ = load_default_model(cfg, args.checkpoint, dataset, args.fuse_conv_bn, args.device)
