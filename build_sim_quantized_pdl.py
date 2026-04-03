@@ -211,13 +211,7 @@ class AimetTraceWrapper(torch.nn.Module):
     def set_batch(self, batch):
         self.runtime_batch = batch
 
-        meta0 = batch["img_metas"][0]
-        import numpy as np
-
-        print("img shape:", batch["img"].shape)
-        print("len(img_metas):", len(batch["img_metas"]))
-        print("lidar2img shape:", np.asarray(meta0["lidar2img"]).shape)
-        print("lidar2img size:", np.asarray(meta0["lidar2img"]).size)
+        print(batch)
 
     def forward(self, _dummy):
         assert self.runtime_batch is not None
