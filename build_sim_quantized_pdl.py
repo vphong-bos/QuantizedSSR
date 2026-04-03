@@ -378,18 +378,9 @@ def main(args):
     first_batch = next(iter(data_loader))
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
 
-    static_inputs = {k: v for k, v in prepared_batch.items() if k != "img"}
-
-    find_unpickleable(static_inputs, "static_inputs")
-    find_unpickleable(model, "model")
-
     wrapped_model = AimetTraceWrapper(
         model=model,
-        static_inputs=static_inputs,
     ).to(args.device).eval()
-
-    with torch.no_grad():
-        wrapped_model(prepared_batch["img"])
 
     real_img = prepared_batch["img"]
     if isinstance(real_img, list):
@@ -397,7 +388,6 @@ def main(args):
         real_img = real_img[0]
 
     dummy_input = torch.randn_like(real_img)
-
 
     maybe_run_cle(wrapped_model, dummy_input, args.enable_cle)
     maybe_run_bn_fold(wrapped_model, dummy_input, args.enable_bn_fold)
