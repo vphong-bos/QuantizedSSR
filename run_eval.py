@@ -148,6 +148,8 @@ def main():
         quant_results = tmp
         if rank == 0:
             print("======================================================")
+            print(type(quant_results['bbox_results'][0]))
+            print(quant_results['bbox_results'][0])
             print(dataset.evaluate(quant_results['bbox_results'], metric=args.eval))
 
 if __name__ == '__main__':
