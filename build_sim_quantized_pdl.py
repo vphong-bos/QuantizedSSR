@@ -102,24 +102,33 @@ def build_dataset(cfg, default_args=None):
 # Data handling from the detector script
 # -----------------------------------------------------------------------------
 def extract_data_from_container(data):
-    """Extract data from DataContainer."""
+    data = dict(data)
+
     data["img_metas"] = data["img_metas"][0].data
-    # data["points"] = data["points"][0].data
     data["gt_bboxes_3d"] = data["gt_bboxes_3d"][0].data
     data["gt_labels_3d"] = data["gt_labels_3d"][0].data
     data["img"] = data["img"][0].data
-    # data["fut_valid_flag"] = data["fut_valid_flag"][0].data
+
     data["ego_his_trajs"] = data["ego_his_trajs"][0].data
     data["ego_fut_trajs"] = data["ego_fut_trajs"][0].data
-    # data["ego_fut_masks"] = data["ego_fut_masks"][0].data
     data["ego_fut_cmd"] = data["ego_fut_cmd"][0].data
     data["ego_lcf_feat"] = data["ego_lcf_feat"][0].data
     data["gt_attr_labels"] = data["gt_attr_labels"][0].data
-    # data["gt_attr_labels"] = data["gt_attr_labels"][0]
+
     data["map_gt_labels_3d"] = data["map_gt_labels_3d"].data[0]
     data["map_gt_bboxes_3d"] = data["map_gt_bboxes_3d"].data[0]
-    
-    if data["img"].dim() == 4:
+
+    # unwrap img: [tensor(...)] -> tensor(...)
+    if isinstance(data["img"], list):
+        assert len(data["img"]) == 1, f'unexpected img list len: {len(data["img"])}'
+        data["img"] = data["img"][0]
+
+    # unwrap img_metas: [[meta]] -> [meta]
+    if isinstance(data["img_metas"], list) and len(data["img_metas"]) == 1 and isinstance(data["img_metas"][0], list):
+        data["img_metas"] = data["img_metas"][0]
+
+    # ensure batch dim on img
+    if hasattr(data["img"], "dim") and data["img"].dim() == 4:
         data["img"] = data["img"].unsqueeze(0)
 
     return data
