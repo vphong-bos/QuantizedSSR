@@ -1,24 +1,15 @@
+import os
 import torch
+from tqdm import tqdm
+from typing import Optional, Dict, Any
 
-import torch.nn as nn
-
-from evaluation.eval_dataset import extract_data
-
+import onnxruntime as ort
 from aimet_torch import quantsim
 from aimet_common.defs import QuantScheme
 from aimet_torch.quantsim import QuantizationSimModel
 
 from quantization.registered_ops import QuantizedLinear
-
-from typing import Optional, Dict, Any
-
-import pickle
-import torch
-import numpy as np
-import torch.nn as nn
-
-import torch
-import torch.nn as nn
+from evaluation.eval_dataset import extract_data
 
 class AimetTraceWrapper(torch.nn.Module):
     def __init__(self, model):
@@ -82,31 +73,41 @@ def calibration_forward_pass(model, forward_pass_args):
     model.eval()
 
     seen_samples = 0
-    with torch.no_grad():
-        for batch_idx, batch in enumerate(dataloader):
-            prepared = prepare_batch(batch, device)
 
-            if hasattr(model, "set_batch"):
-                model.set_batch(prepared)
-                _ = model(prepared["img"])
-            else:
-                _ = model(prepared["img"])
+    total_batches = len(dataloader)
+    if max_batches is not None and max_batches > 0:
+        total_batches = min(total_batches, max_batches)
 
-            batch_img = prepared["img"]
-            if isinstance(batch_img, list):
-                batch_img = batch_img[0]
+    pbar = tqdm(total=total_batches, desc="Calibration", dynamic_ncols=True)
 
-            current_bs = batch_img.size(0) if torch.is_tensor(batch_img) else 1
-            seen_samples += current_bs
+    for batch_idx, batch in enumerate(dataloader):
+        prepared = prepare_batch(batch, device)
 
-            if max_batches is not None and max_batches > 0 and batch_idx + 1 >= max_batches:
-                break
-            if max_samples is not None and max_samples > 0 and seen_samples >= max_samples:
-                break
+        if hasattr(model, "set_batch"):
+            model.set_batch(prepared)
+            _ = model(prepared["img"])
+        else:
+            _ = model(prepared["img"])
 
-import os
-import torch
-import onnxruntime as ort
+        batch_img = prepared["img"]
+        if isinstance(batch_img, list):
+            batch_img = batch_img[0]
+
+        current_bs = batch_img.size(0) if torch.is_tensor(batch_img) else 1
+        seen_samples += current_bs
+
+        # update progress bar
+        pbar.update(1)
+        pbar.set_postfix({
+            "samples": seen_samples
+        })
+
+        if max_batches is not None and max_batches > 0 and batch_idx + 1 >= max_batches:
+            break
+        if max_samples is not None and max_samples > 0 and seen_samples >= max_samples:
+            break
+
+    pbar.close()
 
 def get_onnx_graph_optimization_level(level):
     """
