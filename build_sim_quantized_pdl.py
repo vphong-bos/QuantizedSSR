@@ -104,10 +104,17 @@ def build_dataset(cfg, default_args=None):
 def extract_data_from_container(data):
     data = dict(data)
 
+    # keep img_metas double-nested because SSR.forward expects img_metas[0][0]
     data["img_metas"] = data["img_metas"][0].data
+
     data["gt_bboxes_3d"] = data["gt_bboxes_3d"][0].data
     data["gt_labels_3d"] = data["gt_labels_3d"][0].data
+
+    # unwrap img all the way to tensor
     data["img"] = data["img"][0].data
+    if isinstance(data["img"], list):
+        assert len(data["img"]) == 1
+        data["img"] = data["img"][0]
 
     data["ego_his_trajs"] = data["ego_his_trajs"][0].data
     data["ego_fut_trajs"] = data["ego_fut_trajs"][0].data
@@ -118,16 +125,6 @@ def extract_data_from_container(data):
     data["map_gt_labels_3d"] = data["map_gt_labels_3d"].data[0]
     data["map_gt_bboxes_3d"] = data["map_gt_bboxes_3d"].data[0]
 
-    # unwrap img: [tensor(...)] -> tensor(...)
-    if isinstance(data["img"], list):
-        assert len(data["img"]) == 1, f'unexpected img list len: {len(data["img"])}'
-        data["img"] = data["img"][0]
-
-    # unwrap img_metas: [[meta]] -> [meta]
-    if isinstance(data["img_metas"], list) and len(data["img_metas"]) == 1 and isinstance(data["img_metas"][0], list):
-        data["img_metas"] = data["img_metas"][0]
-
-    # ensure batch dim on img
     if hasattr(data["img"], "dim") and data["img"].dim() == 4:
         data["img"] = data["img"].unsqueeze(0)
 
@@ -616,12 +613,6 @@ def main(args):
     first_batch = next(iter(data_loader))
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
     dummy_input = prepared_batch["img"]
-    print(type(prepared_batch["img"]))
-    print(prepared_batch["img"])
-    print(type(prepared_batch["img_metas"]))
-    print(len(prepared_batch["img_metas"]))
-    print(type(prepared_batch["img_metas"][0]))
-    print(len(prepared_batch["img_metas"][0]["lidar2img"]))
 
     print("Wrapping model for AIMET tracing...")
     wrapped_model = AimetTraceWrapper(model=model, initial_batch=prepared_batch).to(args.device).eval()
