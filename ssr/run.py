@@ -159,16 +159,44 @@ def load_aimet_quantized_model(
         )
 
     # =========================
-    # Case 2: AIMET checkpoint
+    # Case 2: AIMET checkpoint / serialized sim object
     # =========================
     print("Detected AIMET checkpoint")
 
-    sim = quantsim.load_checkpoint(quant_weights)
-    sim.model.to(device).eval()
+    sim = None
+    model = None
+
+    # First try official AIMET loader
+    try:
+        sim = quantsim.load_checkpoint(quant_weights)
+        print("[AIMET] loaded with quantsim.load_checkpoint")
+    except Exception as e:
+        print(f"[AIMET] quantsim.load_checkpoint failed: {e}")
+        print("[AIMET] trying torch.load fallback ...")
+
+        obj = torch.load(quant_weights, map_location=device)
+
+        # torch.save(sim)
+        if hasattr(obj, "model"):
+            print("[AIMET] detected serialized sim object via torch.load")
+            sim = obj
+        else:
+            # torch.save(sim.model) or raw model object
+            print("[AIMET] detected serialized model object via torch.load")
+            model = obj
+
+    if sim is not None:
+        model = sim.model
+
+    if model is None:
+        raise RuntimeError(f"Failed to load AIMET model from: {quant_weights}")
+
+    model.to(device)
+    model.eval()
 
     return {
         "backend": "torch",
-        "model": sim.model,
+        "model": model,
         "session": None,
         "input_name": None,
         "output_names": None,
