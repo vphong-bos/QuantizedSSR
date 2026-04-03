@@ -3,35 +3,35 @@ set -euo pipefail
 
 REPO_ROOT="/kaggle/working/QuantizedSSR"
 SSR_DIR="${REPO_ROOT}/ssr"
-DATA_DIR="${SSR_DIR}/data"
-OUTSIDE_DATA_DIR="${REPO_ROOT}/data"
 DATASET_SRC="/kaggle/input/datasets/vuthanhphong/ssr-dataset/dataset"
+
+# Real data lives here
+DATA_DIR="${SSR_DIR}/data"
+
+# This becomes a symlink to DATA_DIR
+DATA_ROOT="${REPO_ROOT}/data"
+
+DATASET_DST="${DATA_DIR}/dataset"
+PY39_ENV="/kaggle/working/py39_ssr"
 
 echo "Preparing SSR directory..."
 mkdir -p "${SSR_DIR}"
+mkdir -p "${DATA_DIR}"
 
-echo "Resolving data directory..."
-if [[ -L "${DATA_DIR}" ]]; then
-  echo "Symlink already exists: ${DATA_DIR} -> $(readlink "${DATA_DIR}")"
-  REAL_DATA_ROOT="$(readlink -f "${DATA_DIR}")"
-elif [[ -e "${DATA_DIR}" ]]; then
-  echo "Existing real directory found at ${DATA_DIR}; using it directly."
-  REAL_DATA_ROOT="${DATA_DIR}"
+echo "Ensuring ${DATA_ROOT} points to ${DATA_DIR}..."
+
+if [[ -L "${DATA_ROOT}" ]]; then
+  echo "Symlink already exists: ${DATA_ROOT} -> $(readlink "${DATA_ROOT}")"
+elif [[ -e "${DATA_ROOT}" ]]; then
+  echo "Existing non-symlink path found at ${DATA_ROOT}; leaving it untouched for safety."
 else
-  mkdir -p "${OUTSIDE_DATA_DIR}"
-  ln -s "${OUTSIDE_DATA_DIR}" "${DATA_DIR}"
-  echo "Linked ${DATA_DIR} -> ${OUTSIDE_DATA_DIR}"
-  REAL_DATA_ROOT="${OUTSIDE_DATA_DIR}"
+  ln -s "${DATA_DIR}" "${DATA_ROOT}"
+  echo "Linked ${DATA_ROOT} -> ${DATA_DIR}"
 fi
 
-DATASET_DST="${REAL_DATA_ROOT}/dataset"
-NUSC_DIR="${DATASET_DST}/nuscenes"
-
-echo "Using data root: ${REAL_DATA_ROOT}"
-
 echo "Checking whether prepared data already exists..."
-if [[ -f "${NUSC_DIR}/vad_nuscenes_infos_temporal_train.pkl" ]]; then
-  echo "Prepared data already exists, skipping extraction and dataset copy."
+if [[ -d "${DATA_DIR}/dataset/nuscenes" ]] && [[ -n "$(ls -A "${DATA_DIR}/dataset/nuscenes" 2>/dev/null || true)" ]]; then
+  echo "Prepared data already found at ${DATA_DIR}, skipping extraction and dataset copy."
 else
   echo "Reconstructing data.zip..."
   cd "${SSR_DIR}"
@@ -52,10 +52,11 @@ else
     exit 1
   fi
 
-  echo "Moving nuscenes info files..."
+  echo "Moving nuscenes info files (safe)..."
+  NUSC_DIR="${DATASET_DST}/nuscenes"
   mkdir -p "${NUSC_DIR}"
 
-  for f in "${REAL_DATA_ROOT}"/vad_nuscenes_infos_temporal_*.pkl; do
+  for f in "${DATA_DIR}"/vad_nuscenes_infos_temporal_*.pkl; do
     if [[ -f "$f" ]]; then
       echo "Moving $(basename "$f") -> nuscenes/"
       mv "$f" "${NUSC_DIR}/"
@@ -63,12 +64,16 @@ else
   done
 fi
 
-echo "Final path check:"
+echo "Final real data dir check:"
 ls -ld "${DATA_DIR}" || true
-echo "Resolved data root:"
-readlink -f "${DATA_DIR}" || echo "${REAL_DATA_ROOT}"
+
+echo "Final symlink check:"
+ls -ld "${DATA_ROOT}" || true
+
+echo "Resolved /kaggle/working/QuantizedSSR/data:"
+readlink -f "${DATA_ROOT}" || true
 
 echo "Final nuscenes directory:"
-ls -lh "${NUSC_DIR}" || true
+ls -lh "${DATA_DIR}/dataset/nuscenes" || true
 
 echo "Done."
