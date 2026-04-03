@@ -29,6 +29,7 @@ class AimetTraceWrapper(nn.Module):
         return self.forward_fn(self.model, data)
 
 def aimet_forward_fn(model, data):
+    print(data)
     return model(return_loss=False, rescale=True, **data)
 
 def move_to_device(obj: Any, device: torch.device) -> Any:
