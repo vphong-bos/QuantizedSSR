@@ -12,33 +12,31 @@ from quantization.registered_ops import QuantizedLinear
 
 from typing import Optional, Dict, Any
 
+import torch.nn as nn
+
+
 class AimetTraceWrapper(nn.Module):
-    def __init__(self, model, forward_fn, static_inputs = None):
+    def __init__(self, model, forward_fn):
         super().__init__()
         self.model = model
         self.forward_fn = forward_fn
-        self.static_inputs = static_inputs
 
     def forward(self, data):
-        """
-        Compatible with MMDet-style call:
-            model(return_loss=False, rescale=True, **data)
+        return self.forward_fn(self.model, data)
 
-        We ignore return_loss/rescale and just pass data through.
-        """
 
-        return self.forward_fn(self.model, data, self.static_inputs)
-
-import copy
-
-def aimet_forward_fn(model, img, static_inputs):
-    if not isinstance(static_inputs, dict):
-        raise TypeError(f"static_inputs must be dict, got {type(static_inputs)}")
-
-    data = copy.copy(static_inputs)
-    data["img"] = data
-
+def aimet_forward_fn(model, data):
     return model(return_loss=False, rescale=True, **data)
+# import copy
+
+# def aimet_forward_fn(model, img, static_inputs):
+#     if not isinstance(static_inputs, dict):
+#         raise TypeError(f"static_inputs must be dict, got {type(static_inputs)}")
+
+#     data = copy.copy(static_inputs)
+#     data["img"] = data
+
+#     return model(return_loss=False, rescale=True, **data)
 
 def move_to_device(obj: Any, device: torch.device) -> Any:
     if torch.is_tensor(obj):
