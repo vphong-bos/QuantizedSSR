@@ -18,7 +18,7 @@ class AimetTraceWrapper(nn.Module):
         self.model = model
         self.forward_fn = forward_fn
 
-    def forward(self, **data):
+    def forward(self, data):
         """
         Compatible with MMDet-style call:
             model(return_loss=False, rescale=True, **data)
