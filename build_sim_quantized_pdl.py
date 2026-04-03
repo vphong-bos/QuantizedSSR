@@ -80,14 +80,7 @@ QuantizationMixin.ignore(L1Loss)
 QuantizationMixin.ignore(GIoULoss)
 QuantizationMixin.ignore(Dropout)
 
-@QuantizationMixin.implements(Linear)
-class QuantizedLinear(QuantizationMixin, Linear):
-
-    def __quant_init__(self):
-        super().__quant_init__()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return super().forward(x)
+from quantization.registered_ops import QuantizedLinear
 
 warnings.filterwarnings("ignore")
 
