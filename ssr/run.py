@@ -112,6 +112,74 @@ def load_onnx_session(onnx_path, provider='CPUExecutionProvider', opt_level='bas
 
     return session, input_names, output_names
 
+def _strip_module_prefix(state_dict):
+    if not isinstance(state_dict, dict):
+        return state_dict
+
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        if k.startswith('module.'):
+            new_state_dict[k[len('module.'):]] = v
+        else:
+            new_state_dict[k] = v
+    return new_state_dict
+
+
+def _looks_like_state_dict(obj):
+    if not isinstance(obj, dict) or len(obj) == 0:
+        return False
+
+    # Heuristic: raw state_dict usually maps string -> tensor
+    first_key = next(iter(obj.keys()))
+    first_val = obj[first_key]
+    return isinstance(first_key, str) and torch.is_tensor(first_val)
+
+
+def load_checkpoint_flexible(model, checkpoint_path, map_location='cpu'):
+    """
+    Supports:
+      1) mmcv/mmdet checkpoint with 'state_dict'
+      2) raw state_dict saved directly as .pth/.pt/.pkl
+      3) dict containing common weight keys
+    """
+    try:
+        checkpoint = load_checkpoint(model, checkpoint_path, map_location=map_location)
+        print('[Checkpoint] loaded with mmcv.load_checkpoint')
+        return checkpoint
+    except RuntimeError as e:
+        print('[Checkpoint] mmcv.load_checkpoint failed:', e)
+        print('[Checkpoint] trying raw torch.load fallback ...')
+
+    checkpoint = torch.load(checkpoint_path, map_location=map_location)
+
+    if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+        state_dict = checkpoint['state_dict']
+    elif isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        state_dict = checkpoint['model_state_dict']
+    elif isinstance(checkpoint, dict) and 'model' in checkpoint and isinstance(checkpoint['model'], dict):
+        state_dict = checkpoint['model']
+    elif _looks_like_state_dict(checkpoint):
+        state_dict = checkpoint
+    else:
+        raise RuntimeError(
+            f'Unsupported checkpoint format: {checkpoint_path}. '
+            f'Keys: {list(checkpoint.keys())[:20] if isinstance(checkpoint, dict) else type(checkpoint)}'
+        )
+
+    state_dict = _strip_module_prefix(state_dict)
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+
+    print(f'[Checkpoint] loaded raw state_dict from: {checkpoint_path}')
+    print(f'[Checkpoint] missing keys   : {len(missing)}')
+    print(f'[Checkpoint] unexpected keys: {len(unexpected)}')
+
+    return {
+        'meta': {},
+        'state_dict': state_dict,
+        'missing_keys': missing,
+        'unexpected_keys': unexpected,
+    }
+
 
 def build_base_model(cfg, checkpoint_path=None, fuse_conv_bn_flag=False):
     cfg.model.train_cfg = None
@@ -123,7 +191,7 @@ def build_base_model(cfg, checkpoint_path=None, fuse_conv_bn_flag=False):
 
     checkpoint = None
     if checkpoint_path is not None:
-        checkpoint = load_checkpoint(model, checkpoint_path, map_location='cpu')
+        checkpoint = load_checkpoint_flexible(model, checkpoint_path)
 
     if fuse_conv_bn_flag:
         model = fuse_conv_bn(model)
