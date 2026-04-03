@@ -118,7 +118,7 @@ def main():
                 "input_name": None,
                 "output_names": None,
             }, 
-            loader=data_loader, 
+            data_loader=data_loader, 
             max_samples=args.max_samples,
         )
 
