@@ -347,13 +347,16 @@ def main(args):
     first_batch = next(iter(data_loader))
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
 
+    static_inputs = {k: v for k, v in prepared_batch.items() if k != "img"}
+
     wrapped_model = AimetTraceWrapper(
         model=model,
-        forward_fn=aimet_forward_fn,
+        static_inputs=static_inputs,
+        img_template=prepared_batch["img"],
     ).to(args.device).eval()
 
-    wrapped_model.forward(prepared_batch)
-    
+    wrapped_model(prepared_batch["img"])
+
     real_img = prepared_batch["img"]
     if isinstance(real_img, list):
         assert len(real_img) == 1, f"Unexpected img list length: {len(real_img)}"
