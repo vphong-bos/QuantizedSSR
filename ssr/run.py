@@ -22,81 +22,269 @@ import mmcv
 print("mmcv loaded from:", mmcv.__file__)
 import torch
 import warnings
+import numpy as np
 from mmcv import Config, DictAction
 from mmcv.cnn import fuse_conv_bn
-from mmcv.parallel import MMDataParallel
-from mmcv.runner import (get_dist_info, load_checkpoint, wrap_fp16_model)
+from mmcv.runner import get_dist_info, load_checkpoint, wrap_fp16_model
 
 from ssr.projects.mmdet3d_plugin.datasets.builder import build_dataloader
 from ssr.projects.mmdet3d_plugin.SSR.utils.builder import build_model
 from ssr.projects.mmdet3d_plugin.datasets import VADCustomNuScenesDataset
+
+from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn
+
 from mmdet.apis import set_random_seed
 from mmdet.datasets import replace_ImageToTensor
 import time
 import os.path as osp
 
-import warnings
 warnings.filterwarnings("ignore")
-
 
 import platform
 from mmcv.utils import Registry, build_from_cfg
-
 from mmdet.datasets import DATASETS
 
 if platform.system() != 'Windows':
-    # https://github.com/pytorch/pytorch/issues/973
     import resource
     rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
     base_soft_limit = rlimit[0]
     hard_limit = rlimit[1]
     soft_limit = min(max(4096, base_soft_limit), hard_limit)
     resource.setrlimit(resource.RLIMIT_NOFILE, (soft_limit, hard_limit))
-    
-    
+
+
 def extract_data_from_container(data):
     """Extract data from DataContainer."""
     data["img_metas"] = data["img_metas"][0].data
-    # data["points"] = data["points"][0].data
     data["gt_bboxes_3d"] = data["gt_bboxes_3d"][0].data
     data["gt_labels_3d"] = data["gt_labels_3d"][0].data
     data["img"] = data["img"][0].data
-    # data["fut_valid_flag"] = data["fut_valid_flag"][0].data
     data["ego_his_trajs"] = data["ego_his_trajs"][0].data
     data["ego_fut_trajs"] = data["ego_fut_trajs"][0].data
-    # data["ego_fut_masks"] = data["ego_fut_masks"][0].data
     data["ego_fut_cmd"] = data["ego_fut_cmd"][0].data
     data["ego_lcf_feat"] = data["ego_lcf_feat"][0].data
     data["gt_attr_labels"] = data["gt_attr_labels"][0].data
-    # data["gt_attr_labels"] = data["gt_attr_labels"][0]
     data["map_gt_labels_3d"] = data["map_gt_labels_3d"].data[0]
     data["map_gt_bboxes_3d"] = data["map_gt_bboxes_3d"].data[0]
     return data
 
 
 OBJECTSAMPLERS = Registry('Object sampler')
- 
+
+
 def build_dataset(cfg, default_args=None):
     return build_from_cfg(cfg, DATASETS, default_args)
 
 
+def get_onnx_opt_level(opt_level_str):
+    import onnxruntime as ort
+
+    mapping = {
+        'disable': ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
+        'basic': ort.GraphOptimizationLevel.ORT_ENABLE_BASIC,
+        'extended': ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
+        'all': ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+    }
+    return mapping[opt_level_str]
+
+
+def load_onnx_session(onnx_path, provider='CPUExecutionProvider', opt_level='basic'):
+    import onnxruntime as ort
+
+    so = ort.SessionOptions()
+    so.graph_optimization_level = get_onnx_opt_level(opt_level)
+
+    session = ort.InferenceSession(
+        onnx_path,
+        sess_options=so,
+        providers=[provider],
+    )
+
+    input_names = [x.name for x in session.get_inputs()]
+    output_names = [x.name for x in session.get_outputs()]
+
+    print('[ONNX] loaded from:', onnx_path)
+    print('[ONNX] provider   :', provider)
+    print('[ONNX] opt level  :', opt_level)
+    print('[ONNX] inputs     :', input_names)
+    print('[ONNX] outputs    :', output_names)
+
+    return session, input_names, output_names
+
+
+def build_base_model(cfg, checkpoint_path=None, fuse_conv_bn_flag=False):
+    cfg.model.train_cfg = None
+    model = build_model(cfg.model, test_cfg=cfg.get('test_cfg'))
+
+    fp16_cfg = cfg.get('fp16', None)
+    if fp16_cfg is not None:
+        wrap_fp16_model(model)
+
+    checkpoint = None
+    if checkpoint_path is not None:
+        checkpoint = load_checkpoint(model, checkpoint_path, map_location='cpu')
+
+    if fuse_conv_bn_flag:
+        model = fuse_conv_bn(model)
+
+    return model, checkpoint
+
+
+def apply_checkpoint_metadata(model, checkpoint, dataset):
+    if checkpoint is None:
+        return
+
+    if 'CLASSES' in checkpoint.get('meta', {}):
+        model.CLASSES = checkpoint['meta']['CLASSES']
+
+    if 'PALETTE' in checkpoint.get('meta', {}):
+        model.PALETTE = checkpoint['meta']['PALETTE']
+    elif hasattr(dataset, 'PALETTE'):
+        model.PALETTE = dataset.PALETTE
+
+
+def wrap_with_aimet_trace(model):
+    wrapped_model = AimetTraceWrapper(model, aimet_forward_fn)
+    return wrapped_model
+
+
+def run_normal_inference(model, data):
+    with torch.no_grad():
+        return model(return_loss=False, rescale=True, **data)
+
+
+def run_aimet_inference(model, data):
+    with torch.no_grad():
+        return model(**data)
+
+
+def run_onnx_inference(session, input_names, data):
+    """
+    Minimal ONNX inference path.
+
+    Assumes first input is image tensor.
+    Extend mapping if your exported ONNX graph needs more inputs.
+    """
+    img = data["img"]
+    if isinstance(img, torch.Tensor):
+        img_np = img.detach().cpu().numpy()
+    else:
+        img_np = np.asarray(img)
+
+    ort_inputs = {
+        input_names[0]: img_np
+    }
+    ort_outputs = session.run(None, ort_inputs)
+
+    # TODO:
+    # Convert ort_outputs into the same structured result format
+    # returned by the PyTorch model so dataset.evaluate(...) works.
+    return ort_outputs
+
+
+def run_inference(model_obj, mode, data, onnx_input_names=None):
+    if mode == 'normal':
+        return run_normal_inference(model_obj, data)
+    if mode == 'aimet':
+        return run_aimet_inference(model_obj, data)
+    if mode == 'onnx':
+        return run_onnx_inference(model_obj, onnx_input_names, data)
+    raise ValueError(f'Unsupported inference mode: {mode}')
+
+
+def maybe_dump_heatmaps(model, mode):
+    if mode != 'normal':
+        return
+
+    if not hasattr(model, 'pts_bbox_head'):
+        return
+
+    try:
+        heatmaps_list = model.pts_bbox_head.transformer.encoder.layers[0].attentions[1]._heatmaps_list
+    except Exception:
+        return
+
+    if not heatmaps_list:
+        return
+
+    from pathlib import Path
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+
+    output_dir = Path('logs/run_heatmaps')
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    final_heatmap = None
+    for cam_idx, heatmap in enumerate(heatmaps_list):
+        if isinstance(heatmap, torch.Tensor):
+            heatmap_np = heatmap.detach().cpu().float().numpy()
+        else:
+            heatmap_np = np.asarray(heatmap, dtype=np.float32)
+
+        heatmap_np = np.clip(heatmap_np, a_min=0.0, a_max=None).astype(
+            np.int32, copy=False)
+        if heatmap_np.ndim != 2 or heatmap_np.shape != (100, 100):
+            continue
+
+        if final_heatmap is None:
+            final_heatmap = heatmap_np.copy()
+        else:
+            final_heatmap += heatmap_np
+
+        save_path = output_dir / f'camera_{cam_idx}_heatmap.png'
+        fig, ax = plt.subplots(figsize=(11, 11))
+        sns.heatmap(
+            heatmap_np,
+            annot=True,
+            annot_kws={'size': 3},
+            square=True,
+            cbar=True,
+            ax=ax,
+        )
+        fig.tight_layout()
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+    if final_heatmap is not None:
+        final_path = output_dir / 'final_heatmap.png'
+        fig, ax = plt.subplots(figsize=(11, 11))
+        sns.heatmap(
+            final_heatmap,
+            annot=True,
+            annot_kws={'size': 3},
+            square=True,
+            cbar=True,
+            ax=ax,
+        )
+        fig.tight_layout()
+        fig.savefig(final_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+
 def single_gpu_test(model,
-                    data_loader, 
-                    max_samples = 20):
-    
-    model.eval()
+                    data_loader,
+                    max_samples=20,
+                    mode='normal',
+                    onnx_input_names=None):
+    if mode in ['normal', 'aimet'] and hasattr(model, 'eval'):
+        model.eval()
+
     results = []
     dataset = data_loader.dataset
     prog_bar = mmcv.ProgressBar(len(dataset))
-    
+
     try:
         for i, data in enumerate(data_loader):
             if max_samples is not None and i >= max_samples:
                 break
 
             data = extract_data_from_container(data)
-            with torch.no_grad():
-                result = model(return_loss=False, rescale=True, **data)
+            result = run_inference(
+                model_obj=model,
+                mode=mode,
+                data=data,
+                onnx_input_names=onnx_input_names,
+            )
 
             results.extend(result)
 
@@ -106,65 +294,8 @@ def single_gpu_test(model,
 
     except KeyboardInterrupt:
         print('Keyboard interrupt, exiting...')
-        
-    # [(100, 100), ...] per camera frequency counts captured during encoder forward
-    heatmaps_list = model.pts_bbox_head.transformer.encoder.layers[0].attentions[1]._heatmaps_list
 
-    if heatmaps_list:
-        from pathlib import Path
-        import numpy as np
-        import seaborn as sns
-        import matplotlib.pyplot as plt
-
-        output_dir = Path('logs/run_heatmaps')
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        final_heatmap = None
-        for cam_idx, heatmap in enumerate(heatmaps_list):
-            if isinstance(heatmap, torch.Tensor):
-                heatmap_np = heatmap.detach().cpu().float().numpy()
-            else:
-                heatmap_np = np.asarray(heatmap, dtype=np.float32)
-
-            heatmap_np = np.clip(heatmap_np, a_min=0.0, a_max=None).astype(
-                np.int32, copy=False)
-            if heatmap_np.ndim != 2 or heatmap_np.shape != (100, 100):
-                continue
-            if final_heatmap is None:
-                final_heatmap = heatmap_np.copy()
-            else:
-                final_heatmap += heatmap_np
-
-            save_path = output_dir / f'camera_{cam_idx}_heatmap.png'
-            fig, ax = plt.subplots(figsize=(11, 11))
-            sns.heatmap(
-                heatmap_np,
-                annot=True,
-                # fmt='.2f',
-                annot_kws={'size': 3},
-                square=True,
-                cbar=True,
-                ax=ax,
-            )
-            fig.tight_layout()
-            fig.savefig(save_path, dpi=300, bbox_inches='tight')
-            plt.close(fig)
-            # save_heatmap_png(heatmap_np, save_path)
-        if final_heatmap is not None:
-            final_path = output_dir / 'final_heatmap.png'
-            fig, ax = plt.subplots(figsize=(11, 11))
-            sns.heatmap(
-                final_heatmap,
-                annot=True,
-                annot_kws={'size': 3},
-                square=True,
-                cbar=True,
-                ax=ax,
-            )
-            fig.tight_layout()
-            fig.savefig(final_path, dpi=300, bbox_inches='tight')
-            plt.close(fig)
-
+    maybe_dump_heatmaps(model, mode)
     return results
 
 
@@ -173,7 +304,14 @@ def parse_args():
         description='MMDet test (and eval) a model')
     parser.add_argument('--config', help='test config file path')
     parser.add_argument('--checkpoint', help='checkpoint file')
-    parser.add_argument('--json_dir', help='json parent dir name file') # NOTE: json file parent folder name
+    parser.add_argument('--onnx', help='onnx model file')
+    parser.add_argument(
+        '--model-type',
+        type=str,
+        default='normal',
+        choices=['normal', 'aimet', 'onnx'],
+        help='inference backend type')
+    parser.add_argument('--json_dir', help='json parent dir name file')
     parser.add_argument('--out', help='output result file in pickle format')
     parser.add_argument(
         '--fuse-conv-bn',
@@ -239,6 +377,19 @@ def parse_args():
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--return_model', type=int, default=0)
     parser.add_argument('--max_samples', type=int, default=None)
+    parser.add_argument(
+        '--onnx-provider',
+        type=str,
+        default='CPUExecutionProvider',
+        choices=['CPUExecutionProvider', 'CUDAExecutionProvider'],
+        help='ONNX Runtime execution provider')
+    parser.add_argument(
+        '--onnx-opt-level',
+        type=str,
+        default='basic',
+        choices=['disable', 'basic', 'extended', 'all'],
+        help='ONNX Runtime graph optimization level')
+
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -250,6 +401,16 @@ def parse_args():
     if args.options:
         warnings.warn('--options is deprecated in favor of --eval-options')
         args.eval_options = args.options
+
+    if args.model_type == 'onnx':
+        if args.onnx is None:
+            raise ValueError('--model-type onnx requires --onnx')
+        if args.checkpoint is not None:
+            raise ValueError('--model-type onnx does not use --checkpoint')
+    else:
+        if args.checkpoint is None:
+            raise ValueError(f'--model-type {args.model_type} requires --checkpoint')
+
     return args
 
 
@@ -271,12 +432,11 @@ def main():
     cfg = Config.fromfile(args.config)
     if args.cfg_options is not None:
         cfg.merge_from_dict(args.cfg_options)
-    # import modules from string list.
+
     if cfg.get('custom_imports', None):
         from mmcv.utils import import_modules_from_strings
         import_modules_from_strings(**cfg['custom_imports'])
 
-    # import modules from plguin/xx, registry will be updated
     if hasattr(cfg, 'plugin'):
         if cfg.plugin:
             import importlib
@@ -289,48 +449,42 @@ def main():
                 for m in _module_dir[1:]:
                     _module_path = _module_path + '.' + m
                 print(_module_path)
-                plg_lib = importlib.import_module(_module_path)
+                importlib.import_module(_module_path)
             else:
-                # import dir is the dirpath for the config file
                 _module_dir = os.path.dirname(args.config)
                 _module_dir = _module_dir.split('/')
                 _module_path = _module_dir[0]
                 for m in _module_dir[1:]:
                     _module_path = _module_path + '.' + m
                 print(_module_path)
-                plg_lib = importlib.import_module(_module_path)
+                importlib.import_module(_module_path)
 
-    # set cudnn_benchmark
     if cfg.get('cudnn_benchmark', False):
         torch.backends.cudnn.benchmark = True
 
     cfg.model.pretrained = None
-    # in case the test dataset is concatenated
+
     samples_per_gpu = 1
     if isinstance(cfg.data.test, dict):
         cfg.data.test.test_mode = True
         samples_per_gpu = cfg.data.test.pop('samples_per_gpu', 1)
         if samples_per_gpu > 1:
-            # Replace 'ImageToTensor' to 'DefaultFormatBundle'
-            cfg.data.test.pipeline = replace_ImageToTensor(
-                cfg.data.test.pipeline)
+            cfg.data.test.pipeline = replace_ImageToTensor(cfg.data.test.pipeline)
     elif isinstance(cfg.data.test, list):
         for ds_cfg in cfg.data.test:
             ds_cfg.test_mode = True
         samples_per_gpu = max(
-            [ds_cfg.pop('samples_per_gpu', 1) for ds_cfg in cfg.data.test])
+            [ds_cfg.pop('samples_per_gpu', 1) for ds_cfg in cfg.data.test]
+        )
         if samples_per_gpu > 1:
             for ds_cfg in cfg.data.test:
                 ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
 
-    # init distributed env first, since logger depends on the dist info.
     distributed = False
 
-    # set random seeds
     if args.seed is not None:
         set_random_seed(args.seed, deterministic=args.deterministic)
 
-    # build the dataloader
     dataset = build_dataset(cfg.data.test)
     data_loader = build_dataloader(
         dataset,
@@ -341,55 +495,59 @@ def main():
         nonshuffler_sampler=cfg.data.nonshuffler_sampler,
     )
 
-    # build the model and load checkpoint
-    cfg.model.train_cfg = None
-    model = build_model(cfg.model, test_cfg=cfg.get('test_cfg'))
-    fp16_cfg = cfg.get('fp16', None)
-    if fp16_cfg is not None:
-        wrap_fp16_model(model)
-    checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
-    if args.fuse_conv_bn:
-        model = fuse_conv_bn(model)
-    # old versions did not save class info in checkpoints, this walkaround is
-    # for backward compatibility
-    if 'CLASSES' in checkpoint.get('meta', {}):
-        model.CLASSES = checkpoint['meta']['CLASSES']
-    
-    # palette for visualization in segmentation tasks
-    if 'PALETTE' in checkpoint.get('meta', {}):
-        model.PALETTE = checkpoint['meta']['PALETTE']
-    elif hasattr(dataset, 'PALETTE'):
-        # segmentation dataset has `PALETTE` attribute
-        model.PALETTE = dataset.PALETTE
+    mode = args.model_type
+    onnx_input_names = None
 
-    # model = MMDataParallel(model, device_ids=[0])
+    if mode == 'onnx':
+        model, onnx_input_names, _ = load_onnx_session(
+            args.onnx,
+            provider=args.onnx_provider,
+            opt_level=args.onnx_opt_level,
+        )
+    else:
+        model, checkpoint = build_base_model(
+            cfg=cfg,
+            checkpoint_path=args.checkpoint,
+            fuse_conv_bn_flag=args.fuse_conv_bn,
+        )
+        apply_checkpoint_metadata(model, checkpoint, dataset)
+
+        if mode == 'aimet':
+            model = wrap_with_aimet_trace(model)
+
     if args.return_model:
         return model, dataset
-    outputs = single_gpu_test(model, data_loader, args.max_samples)
 
-    tmp = {}
-    tmp['bbox_results'] = outputs
-    outputs = tmp
+    outputs = single_gpu_test(
+        model,
+        data_loader,
+        args.max_samples,
+        mode=mode,
+        onnx_input_names=onnx_input_names,
+    )
+
+    outputs = {'bbox_results': outputs}
     rank, _ = get_dist_info()
+
     if rank == 0:
         if args.out:
             print(f'\nwriting results to {args.out}')
-            # assert False
-            if isinstance(outputs, list):
-                mmcv.dump(outputs, args.out)
-            else:
-                mmcv.dump(outputs['bbox_results'], args.out)
+            mmcv.dump(outputs['bbox_results'], args.out)
+
         kwargs = {} if args.eval_options is None else args.eval_options
-        kwargs['jsonfile_prefix'] = osp.join('test', args.config.split(
-            '/')[-1].split('.')[-2], time.ctime().replace(' ', '_').replace(':', '_'))
+        kwargs['jsonfile_prefix'] = osp.join(
+            'test',
+            args.config.split('/')[-1].split('.')[-2],
+            time.ctime().replace(' ', '_').replace(':', '_')
+        )
+
         if args.format_only:
             dataset.format_results(outputs['bbox_results'], **kwargs)
 
         if args.eval:
             print("======================================================")
             print(dataset.evaluate(outputs['bbox_results'], metric=args.eval))
-    
+
+
 if __name__ == '__main__':
     main()
-    
-    
