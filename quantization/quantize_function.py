@@ -115,7 +115,7 @@ def create_quant_sim(
     quant_scheme: str,
     default_output_bw: int,
     default_param_bw: int,
-    config_file: Optional[str],
+    config_path: Optional[str],
 ):
     scheme_map = {
         "tf": QuantScheme.post_training_tf,
@@ -129,7 +129,7 @@ def create_quant_sim(
         quant_scheme=selected_scheme,
         default_output_bw=default_output_bw,
         default_param_bw=default_param_bw,
-        config_file=config_file,
+        config_file=config_path,
         in_place=False,
     )
     return sim
