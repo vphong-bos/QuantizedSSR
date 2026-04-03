@@ -50,7 +50,7 @@ OBJECTSAMPLERS = Registry('Object sampler')
 def parse_args():
     parser = argparse.ArgumentParser(
         description='MMDet test (and eval) a model')
-    parser.add_argument('--config', help='test config file path')
+    parser.add_argument('--config_path', help='test config file path')
     parser.add_argument('--fp32_weights', help='checkpoint file')
     parser.add_argument('--quant_weights', help='checkpoint file')
     parser.add_argument(
