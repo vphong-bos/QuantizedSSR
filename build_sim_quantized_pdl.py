@@ -354,7 +354,8 @@ def main(args):
         static_inputs=static_inputs,
     ).to(args.device).eval()
 
-    wrapped_model(prepared_batch["img"])
+    with torch.no_grad():
+        wrapped_model(prepared_batch["img"])
 
     real_img = prepared_batch["img"]
     if isinstance(real_img, list):
