@@ -1561,12 +1561,29 @@ class VADCustomNuScenesDataset(NuScenesDataset):
     
 
     def format_results(self, results, jsonfile_prefix=None, is_ttnn=False):
-        """Format the results to json."""
+        """Format the results to json (standard format for COCO evaluation).
 
+        Args:
+            results (list[dict]): Testing results of the dataset.
+            jsonfile_prefix (str | None): The prefix of json files. It includes
+                the file path and the prefix of filename, e.g., "a/b/prefix".
+                If not specified, a temp file will be created. Default: None.
+
+        Returns:
+            tuple: Returns (result_files, tmp_dir), where `result_files` is a \
+                dict containing the json filepaths, `tmp_dir` is the temporal \
+                directory created for saving json files when \
+                `jsonfile_prefix` is not specified.
+        """
         if isinstance(results, dict):
+            # logger.debug(f'results must be a list, but get dict, keys={results.keys()}')
+            # assert isinstance(results, list)
             results = results['bbox_results']
-
         assert isinstance(results, list)
+        # NOTE: Skip the assertion that checks the length of results
+        # assert len(results) == len(self), (
+        #     'The length of results is not equal to the dataset len: {} != {}'.
+        #     format(len(results), len(self)))
 
         if jsonfile_prefix is None:
             tmp_dir = tempfile.TemporaryDirectory()
@@ -1574,19 +1591,27 @@ class VADCustomNuScenesDataset(NuScenesDataset):
         else:
             tmp_dir = None
 
+        # currently the output prediction results could be in two formats
+        # 1. list of dict('boxes_3d': ..., 'scores_3d': ..., 'labels_3d': ...)
+        # 2. list of dict('pts_bbox' or 'img_bbox':
+        #     dict('boxes_3d': ..., 'scores_3d': ..., 'labels_3d': ...))
+        # this is a workaround to enable evaluation of both formats on nuScenes
+        # refer to https://github.com/open-mmlab/mmdetection3d/issues/449
         if not ('pts_bbox' in results[0] or 'img_bbox' in results[0]):
             result_files = self._format_bbox(results, jsonfile_prefix, is_ttnn=is_ttnn)
         else:
+            # should take the inner dict out of 'pts_bbox' or 'img_bbox' dict
             result_files = dict()
             for name in results[0]:
                 if name == 'metric_results':
                     continue
+                logger.debug(f'\nFormating bboxes of {name}')
                 results_ = [out[name] for out in results]
                 tmp_file_ = osp.join(jsonfile_prefix, name)
-                result_files[name] = self._format_bbox(results_, tmp_file_, is_ttnn=is_ttnn)
-
+                result_files.update(
+                    {name: self._format_bbox(results_, tmp_file_, is_ttnn=is_ttnn)})
         return result_files, tmp_dir
-
+    
     def _evaluate_single(self,
                          result_path,
                          logger=None,
