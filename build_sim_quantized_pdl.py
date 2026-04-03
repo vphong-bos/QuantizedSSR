@@ -382,6 +382,8 @@ def main(args):
         model=model,
     ).to(args.device).eval()
 
+    wrapped_model.set_batch(prepared_batch)
+
     real_img = prepared_batch["img"]
     if isinstance(real_img, list):
         assert len(real_img) == 1, f"Unexpected img list length: {len(real_img)}"
