@@ -604,7 +604,7 @@ def main(args):
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
     dummy_input = prepared_batch["img"]
     print(type(prepared_batch["img"]))
-    print(prepared_batch["img"].shape)
+    print(prepared_batch["img"])
     print(type(prepared_batch["img_metas"]))
     print(len(prepared_batch["img_metas"]))
     print(type(prepared_batch["img_metas"][0]))
