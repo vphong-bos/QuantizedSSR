@@ -258,7 +258,6 @@ def maybe_run_seq_mse(
 def parse_args(argv=None):
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--config", type=str, required=True, help="test config file path")
     parser.add_argument("--checkpoint", type=str, required=True, help="checkpoint file")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--work_dir", type=str, default="quantized_export")
