@@ -65,6 +65,30 @@ from aimet_torch.quantsim import QuantizationSimModel
 from aimet_torch.seq_mse import SeqMseParams, apply_seq_mse
 from aimet_torch import onnx as aimet_onnx
 
+from mmdet.models.losses.focal_loss import FocalLoss
+from mmdet.models.losses.smooth_l1_loss import L1Loss
+from mmdet.models.losses.iou_loss import GIoULoss
+from mmcv.cnn.bricks.wrappers import Linear
+from mmcv.cnn.bricks.drop import Dropout
+
+from aimet_torch.v2.nn import QuantizationMixin
+
+QuantizationMixin.ignore(FocalLoss)
+QuantizationMixin.ignore(L1Loss)
+QuantizationMixin.ignore(GIoULoss)
+QuantizationMixin.ignore(Dropout)
+
+@QuantizationMixin.implements(Linear)
+class QuantizedLinear(QuantizationMixin, Linear):
+
+    def __quant_init__(self):
+        super().__quant_init__()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return super().forward(x)
+
+
+
 warnings.filterwarnings("ignore")
 
 OBJECTSAMPLERS = Registry("Object sampler")
