@@ -252,7 +252,7 @@ model = dict(
             pc_range=point_cloud_range))))
 
 dataset_type = 'VADCustomNuScenesDataset'
-data_root = f"{os.environ['WORKING_DIR']}/data/dataset/nuscenes/"
+data_root = f"{os.environ['WORKING_DIR']}/ssr/data/dataset/nuscenes/"
 file_client_args = dict(backend='disk')
 
 train_pipeline = [
