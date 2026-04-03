@@ -118,6 +118,10 @@ def extract_data_from_container(data):
     # data["gt_attr_labels"] = data["gt_attr_labels"][0]
     data["map_gt_labels_3d"] = data["map_gt_labels_3d"].data[0]
     data["map_gt_bboxes_3d"] = data["map_gt_bboxes_3d"].data[0]
+    
+    if data["img"].dim() == 4:
+        data["img"] = data["img"].unsqueeze(0)
+
     return data
 
 
