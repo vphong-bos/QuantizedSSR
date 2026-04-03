@@ -87,6 +87,18 @@ warnings.filterwarnings("ignore")
 
 OBJECTSAMPLERS = Registry("Object sampler")
 
+import platform
+from mmcv.utils import Registry
+
+if platform.system() != 'Windows':
+    import resource
+    rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+    base_soft_limit = rlimit[0]
+    hard_limit = rlimit[1]
+    soft_limit = min(max(4096, base_soft_limit), hard_limit)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (soft_limit, hard_limit))
+
+
 # def analyzer_forward_pass(model, callback_args):
 #     calib_loader, device, max_batches = callback_args
 #     calibration_forward_pass(model, (calib_loader, device, max_batches))
