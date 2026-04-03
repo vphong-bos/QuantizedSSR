@@ -53,8 +53,10 @@ from mmcv.utils import Registry, build_from_cfg
 from mmdet.apis import set_random_seed
 from mmdet.datasets import DATASETS, replace_ImageToTensor
 
-from ssr.projects.mmdet3d_plugin.datasets.builder import build_dataloader
-from ssr.projects.mmdet3d_plugin.SSR.utils.builder import build_model
+from evaluation.eval_dataset import build_eval_loader
+from evaluation.eval_metrics import evaluate_model
+from ssr.projects.mmdet3d_plugin.SSR.model import build_model
+from quantization.quantize_function import load_quantized_model
 
 from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn
 
@@ -82,152 +84,11 @@ QuantizationMixin.ignore(Dropout)
 
 from quantization.registered_ops import QuantizedLinear
 
+from evaluation.eval_dataset import extract_data
+
 warnings.filterwarnings("ignore")
 
 OBJECTSAMPLERS = Registry("Object sampler")
-
-
-def build_dataset(cfg, default_args=None):
-    return build_from_cfg(cfg, DATASETS, default_args)
-
-
-# -----------------------------------------------------------------------------
-# Data handling from the detector script
-# -----------------------------------------------------------------------------
-def extract_data_from_container(data: Dict[str, Any]) -> Dict[str, Any]:
-    data = dict(data)
-    data["img_metas"] = data["img_metas"][0].data
-    data["gt_bboxes_3d"] = data["gt_bboxes_3d"][0].data
-    data["gt_labels_3d"] = data["gt_labels_3d"][0].data
-    data["img"] = data["img"][0].data
-    data["ego_his_trajs"] = data["ego_his_trajs"][0].data
-    data["ego_fut_trajs"] = data["ego_fut_trajs"][0].data
-    data["ego_fut_cmd"] = data["ego_fut_cmd"][0].data
-    data["ego_lcf_feat"] = data["ego_lcf_feat"][0].data
-    data["gt_attr_labels"] = data["gt_attr_labels"][0].data
-    data["map_gt_labels_3d"] = data["map_gt_labels_3d"].data[0]
-    data["map_gt_bboxes_3d"] = data["map_gt_bboxes_3d"].data[0]
-    return data
-
-
-def move_to_device(obj: Any, device: torch.device) -> Any:
-    if torch.is_tensor(obj):
-        return obj.to(device, non_blocking=True)
-    if isinstance(obj, list):
-        return [move_to_device(x, device) for x in obj]
-    if isinstance(obj, tuple):
-        return tuple(move_to_device(x, device) for x in obj)
-    if isinstance(obj, dict):
-        return {k: move_to_device(v, device) for k, v in obj.items()}
-    return obj
-
-
-def prepare_batch(batch: Dict[str, Any], device: torch.device) -> Dict[str, Any]:
-    batch = extract_data_from_container(batch)
-    batch = move_to_device(batch, device)
-    return batch
-
-
-# -----------------------------------------------------------------------------
-# AIMET wrappers / callbacks in the user's style
-# -----------------------------------------------------------------------------
-# class AimetTraceWrapper(torch.nn.Module):
-#     """
-#     Wrap the detector so AIMET sees a conventional forward(img) API.
-
-#     The rest of the batch metadata is cached from the latest dataloader sample.
-#     This mirrors your segmentation-side AimetTraceWrapper idea, but adapted to
-#     detector inference where img is only one field of a larger batch dict.
-#     """
-
-#     def __init__(self, model: torch.nn.Module, initial_batch: Dict[str, Any]):
-#         super().__init__()
-#         self.model = model
-#         self.runtime_batch = initial_batch
-
-#     def set_batch(self, batch: Dict[str, Any]) -> None:
-#         self.runtime_batch = batch
-
-#     def forward(self, images):
-#         batch = dict(self.runtime_batch)
-#         batch["img"] = images
-#         out = self.model(return_loss=False, rescale=True, **batch)
-#         return self._make_traceable_output(out)
-
-#     @staticmethod
-#     def _make_traceable_output(out: Any):
-#         if torch.is_tensor(out):
-#             return out
-
-#         if isinstance(out, dict):
-#             tensor_dict = {k: v for k, v in out.items() if torch.is_tensor(v)}
-#             if len(tensor_dict) == 1:
-#                 return next(iter(tensor_dict.values()))
-#             if tensor_dict:
-#                 return tensor_dict
-
-#         if isinstance(out, (list, tuple)):
-#             gathered = []
-#             for item in out:
-#                 if torch.is_tensor(item):
-#                     gathered.append(item)
-#                 elif isinstance(item, dict):
-#                     for value in item.values():
-#                         if torch.is_tensor(value):
-#                             gathered.append(value)
-#             if len(gathered) == 1:
-#                 return gathered[0]
-#             if gathered:
-#                 return tuple(gathered)
-
-#         raise RuntimeError(
-#             "Model output does not expose tensors suitable for AIMET tracing. "
-#             "You may need to wrap a deeper internal submodule for this model."
-#         )
-
-
-# def aimet_forward_fn(model, inputs):
-#     if isinstance(inputs, dict):
-#         images = inputs["img"]
-#     elif isinstance(inputs, (list, tuple)):
-#         images = inputs[0]
-#     else:
-#         images = inputs
-
-#     images = images.to(next(model.parameters()).device)
-#     return model(images)
-
-@torch.no_grad()
-def run_model_on_batch(model: AimetTraceWrapper, batch: Dict[str, Any], device: torch.device):
-    batch = prepare_batch(batch, device)
-    model.set_batch(batch)
-    return model(batch["img"])
-
-
-@torch.no_grad()
-def calibration_forward_pass(model, callback_args):
-    calib_loader, device, max_batches, max_samples = callback_args
-
-    model.eval()
-    seen_samples = 0
-    dummy = torch.zeros(1, device=device)
-
-    for batch_idx, batch in enumerate(calib_loader):
-        prepared = prepare_batch(batch, device)
-        model.set_batch(prepared)
-        _ = model(dummy)
-
-        batch_img = prepared["img"]
-        if isinstance(batch_img, list):
-            batch_img = batch_img[0]
-
-        current_bs = batch_img.size(0) if torch.is_tensor(batch_img) else 1
-        seen_samples += current_bs
-
-        if max_batches is not None and max_batches > 0 and batch_idx + 1 >= max_batches:
-            break
-        if max_samples is not None and max_samples > 0 and seen_samples >= max_samples:
-            break
 
 
 def analyzer_forward_pass(model, callback_args):
@@ -283,50 +144,6 @@ def import_plugin_modules(cfg: Config, config_path: str) -> None:
             module_path = module_path + "." + m
         print("[INFO] Importing plugin module:", module_path)
         importlib.import_module(module_path)
-
-
-def build_dataset_and_loader(cfg: Config):
-    samples_per_gpu = 1
-    if isinstance(cfg.data.test, dict):
-        cfg.data.test.test_mode = True
-        samples_per_gpu = cfg.data.test.pop("samples_per_gpu", 1)
-        if samples_per_gpu > 1:
-            cfg.data.test.pipeline = replace_ImageToTensor(cfg.data.test.pipeline)
-    elif isinstance(cfg.data.test, list):
-        for ds_cfg in cfg.data.test:
-            ds_cfg.test_mode = True
-        samples_per_gpu = max(ds_cfg.pop("samples_per_gpu", 1) for ds_cfg in cfg.data.test)
-        if samples_per_gpu > 1:
-            for ds_cfg in cfg.data.test:
-                ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
-
-    dataset = build_dataset(cfg.data.test)
-    data_loader = build_dataloader(
-        dataset,
-        samples_per_gpu=samples_per_gpu,
-        workers_per_gpu=cfg.data.workers_per_gpu,
-        dist=False,
-        shuffle=False,
-        nonshuffler_sampler=cfg.data.nonshuffler_sampler,
-    )
-    return dataset, data_loader
-
-
-def build_fp32_model(cfg: Config, checkpoint_path: str):
-    cfg.model.pretrained = None
-    cfg.model.train_cfg = None
-
-    model = build_model(cfg.model, test_cfg=cfg.get("test_cfg"))
-    fp16_cfg = cfg.get("fp16", None)
-    if fp16_cfg is not None:
-        wrap_fp16_model(model)
-
-    checkpoint = load_checkpoint(model, checkpoint_path, map_location="cpu")
-    if "CLASSES" in checkpoint.get("meta", {}):
-        model.CLASSES = checkpoint["meta"]["CLASSES"]
-    if "PALETTE" in checkpoint.get("meta", {}):
-        model.PALETTE = checkpoint["meta"]["PALETTE"]
-    return model
 
 
 # -----------------------------------------------------------------------------
@@ -603,11 +420,10 @@ def main(args):
         torch.backends.cudnn.benchmark = True
 
     print("Building dataset / dataloader...")
-    dataset, data_loader = build_dataset_and_loader(copy.deepcopy(cfg))
+    dataset, data_loader = build_eval_loader(copy.deepcopy(cfg))
 
     print("Loading FP32 model...")
-    model = build_fp32_model(cfg, args.checkpoint)
-    model = maybe_fuse_conv_bn(model, args.fuse_conv_bn)
+    model = build_model(cfg, args.checkpoint, dataset, args.fuse_conv_bn, args.device)
     model = model.to(args.device).eval()
 
     # first_batch = next(iter(data_loader))

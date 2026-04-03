@@ -1,134 +1,63 @@
-import glob
 import os
 
-import cv2
-import numpy as np
-import torch
-from PIL import Image
-from torch.utils.data import Dataset, DataLoader
-import torchvision.transforms as T
+from mmcv import Config
+from mmcv.utils import build_from_cfg
+from mmdet.datasets import DATASETS
+from utils.config import prepare_cfg
 
-# ----------------------------
-# Cityscapes labelId -> trainId
-# ----------------------------
-# Standard Cityscapes mapping
-IGNORE_LABEL = 255
+from ssr.projects.mmdet3d_plugin.datasets.builder import build_dataloader
 
-ID_TO_TRAIN_ID = np.full((256,), IGNORE_LABEL, dtype=np.uint8)
+def build_dataset(cfg, default_args=None):
+    """Build a dataset from an MMDetection-style dataset config."""
+    return build_from_cfg(cfg, DATASETS, default_args)
 
-# road, sidewalk, building, wall, fence, pole, traffic light, traffic sign,
-# vegetation, terrain, sky, person, rider, car, truck, bus, train, motorcycle, bicycle
-MAPPING = {
-    7: 0,
-    8: 1,
-    11: 2,
-    12: 3,
-    13: 4,
-    17: 5,
-    19: 6,
-    20: 7,
-    21: 8,
-    22: 9,
-    23: 10,
-    24: 11,
-    25: 12,
-    26: 13,
-    27: 14,
-    28: 15,
-    31: 16,
-    32: 17,
-    33: 18,
-}
-for k, v in MAPPING.items():
-    ID_TO_TRAIN_ID[k] = v
 
-class EvalDataset(Dataset):
-    def __init__(self, cityscapes_root, split="val", image_width=2048, image_height=1024):
-        self.cityscapes_root = cityscapes_root
-        self.split = split
-        self.image_width = image_width
-        self.image_height = image_height
-        self.to_tensor = T.ToTensor()
-
-        pattern = os.path.join(
-            cityscapes_root,
-            "leftImg8bit",
-            split,
-            "*",
-            "*_leftImg8bit.png",
-        )
-        self.image_paths = sorted(glob.glob(pattern))
-        if len(self.image_paths) == 0:
-            raise ValueError(f"No images found: {pattern}")
-
-    def __len__(self):
-        return len(self.image_paths)
-
-    def _get_label_path(self, image_path):
-        city = os.path.basename(os.path.dirname(image_path))
-        base = os.path.basename(image_path).replace("_leftImg8bit.png", "")
-        return os.path.join(
-            self.cityscapes_root,
-            "gtFine",
-            self.split,
-            city,
-            f"{base}_gtFine_labelIds.png",
-        )
-
-    def __getitem__(self, idx):
-        image_path = self.image_paths[idx]
-        label_path = self._get_label_path(image_path)
-
-        image = cv2.imread(image_path)
-        if image is None:
-            raise ValueError(f"Failed to read image: {image_path}")
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        orig_h, orig_w = image.shape[:2]
-
-        resized = cv2.resize(
-            image,
-            (self.image_width, self.image_height),
-            interpolation=cv2.INTER_LINEAR,
-        )
-        image_tensor = self.to_tensor(Image.fromarray(resized)).float()
-
-        label_ids = np.array(Image.open(label_path), dtype=np.uint8)
-        train_ids = ID_TO_TRAIN_ID[label_ids]
-        label_tensor = torch.from_numpy(train_ids.astype(np.int64))
-
-        return {
-            "image": image_tensor,
-            "label": label_tensor,
-            "file_name": image_path,
-            "orig_size": (orig_h, orig_w),
-        }
-
-def eval_collate(batch):
-    return batch
-
+def extract_data(data):
+    """Extract tensor payloads from MMCV DataContainer fields."""
+    data["img_metas"] = data["img_metas"][0].data
+    data["gt_bboxes_3d"] = data["gt_bboxes_3d"][0].data
+    data["gt_labels_3d"] = data["gt_labels_3d"][0].data
+    data["img"] = data["img"][0].data
+    data["ego_his_trajs"] = data["ego_his_trajs"][0].data
+    data["ego_fut_trajs"] = data["ego_fut_trajs"][0].data
+    data["ego_fut_cmd"] = data["ego_fut_cmd"][0].data
+    data["ego_lcf_feat"] = data["ego_lcf_feat"][0].data
+    data["gt_attr_labels"] = data["gt_attr_labels"][0].data
+    data["map_gt_labels_3d"] = data["map_gt_labels_3d"].data[0]
+    data["map_gt_bboxes_3d"] = data["map_gt_bboxes_3d"].data[0]
+    return data
 
 def build_eval_loader(
-    cityscapes_root,
-    split="val",
-    image_width=1024,
-    image_height=512,
-    batch_size=1,
-    num_workers=2
+    config_path,
+    cfg_options=None,
+    distributed=False,
+    shuffle=False,
 ):
-    dataset = EvalDataset(
-        cityscapes_root=cityscapes_root,
-        split=split,
-        image_width=image_width,
-        image_height=image_height,
-    )
+    """Create dataset and dataloader for test/inference from a config file.
 
-    loader = DataLoader(
+    Args:
+        config_path (str): Path to the MMCV config file.
+        cfg_options (dict | None): Optional config overrides.
+        distributed (bool): Whether to build a distributed dataloader.
+        shuffle (bool): Whether to shuffle the dataloader.
+
+    Returns:
+        tuple: (cfg, dataset, data_loader)
+    """
+    cfg = Config.fromfile(config_path)
+    if cfg_options is not None:
+        cfg.merge_from_dict(cfg_options)
+
+    cfg.model.pretrained = None
+    cfg, samples_per_gpu = prepare_cfg(cfg)
+
+    dataset = build_dataset(cfg.data.test)
+    data_loader = build_dataloader(
         dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=torch.cuda.is_available(),
-        collate_fn=eval_collate,
+        samples_per_gpu=samples_per_gpu,
+        workers_per_gpu=cfg.data.workers_per_gpu,
+        dist=distributed,
+        shuffle=shuffle,
+        nonshuffler_sampler=cfg.data.nonshuffler_sampler,
     )
-
-    return loader
+    return cfg, dataset, data_loader

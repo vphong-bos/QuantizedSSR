@@ -1,135 +1,126 @@
-import argparse
-import glob
-import os
-import time
-from collections import OrderedDict
-
-import cv2
-import numpy as np
+import mmcv
 import torch
-import torch.nn.functional as F
-import torchvision.transforms as T
-from PIL import Image
-from torch.utils.data import Dataset, DataLoader
+import warnings
 
-from model.pdl import (
-    DEEPLAB_V3_PLUS,
-    PANOPTIC_DEEPLAB,
-    PytorchPanopticDeepLab,
-    build_model
-)
+from evaluation.eval_dataset import extract_data
 
-from evaluation.eval_dataset import EvalDataset, eval_collate, build_eval_loader
+warnings.filterwarnings("ignore")
 
-def normalize_logits_output(output):
-    if isinstance(output, torch.Tensor):
-        return output
-
-    if isinstance(output, (list, tuple)):
-        # usually first element is the main segmentation logits
-        output = output[0]
-
-    if isinstance(output, dict):
-        if "out" in output:
-            output = output["out"]
-        else:
-            output = next(iter(output.values()))
-
-    if not isinstance(output, torch.Tensor):
-        raise TypeError(f"Expected Tensor after unwrapping, got {type(output)}")
-
-    return output
-
-def get_semantic_logits(model_obj, image, model_category_const):
+def get_model_result(model_obj, data):
     backend = model_obj["backend"]
-    use_cuda = str(image.device).startswith("cuda")
 
     if backend == "torch":
-        if use_cuda:
-            torch.cuda.synchronize()
-
-        start_time = time.perf_counter()
-        output = model_obj["model"](image)
-        end_time = time.perf_counter()
-        if use_cuda:
-            torch.cuda.synchronize()
-
-        logits = normalize_logits_output(output)
-        inference_time = end_time - start_time
-        return logits, inference_time
+        model = model_obj["model"]
+        with torch.no_grad():
+            result = model(return_loss=False, rescale=True, **data)
+        return result
 
     elif backend == "onnx":
         session = model_obj["session"]
         input_name = model_obj["input_name"]
 
-        if image.device.type != "cpu":
-            image_np = image.detach().cpu().numpy()
+        img = data["img"]
+        if isinstance(img, torch.Tensor):
+            if img.device.type != "cpu":
+                img_np = img.detach().cpu().numpy()
+            else:
+                img_np = img.detach().numpy()
         else:
-            image_np = image.detach().numpy()
+            img_np = img
 
-        start_time = time.perf_counter()
-        outputs = session.run(None, {input_name: image_np})
-        end_time = time.perf_counter()
+        ort_outputs = session.run(None, {input_name: img_np})
 
-        logits = torch.from_numpy(outputs[0]).float()
-
-        if logits.ndim == 4 and logits.shape[1] != 19 and logits.shape[-1] == 19:
-            logits = logits.permute(0, 3, 1, 2).contiguous()
-
-        inference_time = end_time - start_time
-        return logits, inference_time
+        # TODO:
+        # convert ort_outputs into the same result format as torch model output
+        return ort_outputs
 
     raise ValueError(f"Unsupported backend: {backend}")
 
-def update_confusion_matrix(conf_mat, pred, target, num_classes=19, ignore_index=255):
-    if pred.device != target.device:
-        pred = pred.to(target.device)
 
-    valid = target != ignore_index
-    pred = pred[valid]
-    target = target[valid]
+def maybe_dump_heatmaps(model_obj):
+    if model_obj["backend"] != "torch":
+        return
 
-    if pred.numel() == 0:
-        return conf_mat
+    model = model_obj["model"]
 
-    inds = num_classes * target + pred
-    conf_mat += torch.bincount(inds, minlength=num_classes ** 2).reshape(num_classes, num_classes)
-    return conf_mat
+    if not hasattr(model, "pts_bbox_head"):
+        return
+
+    try:
+        heatmaps_list = model.pts_bbox_head.transformer.encoder.layers[0].attentions[1]._heatmaps_list
+    except Exception:
+        return
+
+    if not heatmaps_list:
+        return
+
+    from pathlib import Path
+    import numpy as np
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+
+    output_dir = Path("logs/run_heatmaps")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    final_heatmap = None
+    for cam_idx, heatmap in enumerate(heatmaps_list):
+        if isinstance(heatmap, torch.Tensor):
+            heatmap_np = heatmap.detach().cpu().float().numpy()
+        else:
+            heatmap_np = np.asarray(heatmap, dtype=np.float32)
+
+        heatmap_np = np.clip(
+            heatmap_np,
+            a_min=0.0,
+            a_max=None,
+        ).astype(np.int32, copy=False)
+
+        if heatmap_np.ndim != 2 or heatmap_np.shape != (100, 100):
+            continue
+
+        if final_heatmap is None:
+            final_heatmap = heatmap_np.copy()
+        else:
+            final_heatmap += heatmap_np
+
+        save_path = output_dir / f"camera_{cam_idx}_heatmap.png"
+        fig, ax = plt.subplots(figsize=(11, 11))
+        sns.heatmap(
+            heatmap_np,
+            annot=True,
+            annot_kws={"size": 3},
+            square=True,
+            cbar=True,
+            ax=ax,
+        )
+        fig.tight_layout()
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+    if final_heatmap is not None:
+        final_path = output_dir / "final_heatmap.png"
+        fig, ax = plt.subplots(figsize=(11, 11))
+        sns.heatmap(
+            final_heatmap,
+            annot=True,
+            annot_kws={"size": 3},
+            square=True,
+            cbar=True,
+            ax=ax,
+        )
+        fig.tight_layout()
+        fig.savefig(final_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
 
 
-def compute_miou_from_confmat(conf_mat):
-    conf_mat = conf_mat.float()
-    tp = torch.diag(conf_mat)
-    pos_gt = conf_mat.sum(dim=1)
-    pos_pred = conf_mat.sum(dim=0)
-    union = pos_gt + pos_pred - tp
-
-    iou = tp / union.clamp(min=1)
-    valid = union > 0
-    miou = iou[valid].mean().item() * 100.0
-
-    return {
-        "mIoU": miou,
-        "IoU_per_class": (iou * 100.0).cpu().numpy(),
-    }
-
-def evaluate_model(model_obj, model_category_const, loader, device, max_samples=-1):
-    """
-    Supports either:
-      1) dict input:
-         {
-             "backend": "torch",
-             "model": <nn.Module or engine>
-         }
-
-      2) plain model/module input:
-         <nn.Module>, including AimetTraceWrapper
-    """
-
-    # Normalize model_obj so the rest of the function can use backend/model safely
+def evaluate_model(
+    model_obj,
+    data_loader,
+    max_samples=20,
+):
     if isinstance(model_obj, dict):
         backend = model_obj.get("backend", "torch")
-        model = model_obj.get("model", model_obj)
+        model = model_obj.get("model", None)
         normalized_model_obj = model_obj
     else:
         backend = getattr(model_obj, "backend", "torch")
@@ -139,62 +130,29 @@ def evaluate_model(model_obj, model_category_const, loader, device, max_samples=
             "model": model,
         }
 
-    if backend == "torch":
+    if backend == "torch" and model is not None:
         model.eval()
 
-    use_cuda = str(device).startswith("cuda")
-    conf_mat = torch.zeros((19, 19), dtype=torch.int64, device=device)
+    results = []
+    dataset = data_loader.dataset
+    prog_bar = mmcv.ProgressBar(len(dataset))
 
-    processed = 0
-    total_inference_time = 0.0
+    try:
+        for i, data in enumerate(data_loader):
+            if max_samples is not None and i >= max_samples:
+                break
 
-    for batch in loader:
-        for sample in batch:
-            if backend == "torch":
-                image = sample["image"].unsqueeze(0).to(device=device, dtype=torch.float32)
-            else:
-                image = sample["image"].unsqueeze(0).to(dtype=torch.float32)
+            data = extract_data(data)
+            result = get_model_result(normalized_model_obj, data)
 
-            label = sample["label"].to(device=device)
-            orig_h, orig_w = sample["orig_size"]
+            results.extend(result)
 
-            if use_cuda and backend == "torch":
-                torch.cuda.synchronize()
+            batch_size = len(result)
+            for _ in range(batch_size):
+                prog_bar.update()
 
-            logits, inference_time = get_semantic_logits(
-                normalized_model_obj, image, model_category_const
-            )
-            total_inference_time += inference_time
+    except KeyboardInterrupt:
+        print("Keyboard interrupt, exiting...")
 
-            if use_cuda and backend == "torch":
-                torch.cuda.synchronize()
-
-            logits = F.interpolate(
-                logits,
-                size=(orig_h, orig_w),
-                mode="bilinear",
-                align_corners=False,
-            )
-
-            pred = logits.argmax(dim=1).squeeze(0)
-            conf_mat = update_confusion_matrix(conf_mat, pred, label)
-
-            processed += 1
-            if processed % 50 == 0:
-                current_fps = processed / total_inference_time if total_inference_time > 0 else 0.0
-                print(f"Processed {processed} images | FPS: {current_fps:.2f}")
-
-            if max_samples > 0 and processed >= max_samples:
-                metrics = compute_miou_from_confmat(conf_mat)
-                metrics["FPS"] = processed / total_inference_time if total_inference_time > 0 else 0.0
-                metrics["Avg_Inference_Time_ms"] = (
-                    (total_inference_time / processed) * 1000.0 if processed > 0 else 0.0
-                )
-                return metrics
-
-    metrics = compute_miou_from_confmat(conf_mat)
-    metrics["FPS"] = processed / total_inference_time if total_inference_time > 0 else 0.0
-    metrics["Avg_Inference_Time_ms"] = (
-        (total_inference_time / processed) * 1000.0 if processed > 0 else 0.0
-    )
-    return metrics
+    maybe_dump_heatmaps(normalized_model_obj)
+    return results
