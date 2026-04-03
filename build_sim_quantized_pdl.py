@@ -114,6 +114,10 @@ def extract_data_from_container(data: Dict[str, Any]) -> Dict[str, Any]:
     data["gt_attr_labels"] = data["gt_attr_labels"][0].data
     data["map_gt_labels_3d"] = data["map_gt_labels_3d"].data[0]
     data["map_gt_bboxes_3d"] = data["map_gt_bboxes_3d"].data[0]
+    
+    if hasattr(data["img"], "dim") and data["img"].dim() == 4:
+        data["img"] = data["img"].unsqueeze(0)
+
     return data
 
 
@@ -598,7 +602,8 @@ def main(args):
 
     first_batch = next(iter(data_loader))
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
-    dummy_input = (prepared_batch,)
+    dummy_input = prepared_batch["img"]
+    print(dummy_input.shape)
 
     print("Wrapping model for AIMET tracing...")
     wrapped_model = AimetTraceWrapper(model=model, initial_batch=prepared_batch).to(args.device).eval()
