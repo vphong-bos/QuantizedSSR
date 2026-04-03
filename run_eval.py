@@ -86,7 +86,7 @@ def parse_args():
     parser.add_argument(
         '--device',
         choices=["cpu", "cuda"],
-        default="cpu"
+        default="cpu",
         help='Choose device')
     parser.add_argument(
         '--provider',
@@ -103,7 +103,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    cfg, dataset, data_loader = build_eval_loader(args.config_path, args.cfg_options)
+    cfg, dataset, data_loader = build_eval_loader(args.config_path)
 
     rank, _ = get_dist_info()
 

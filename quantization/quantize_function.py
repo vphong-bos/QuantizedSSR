@@ -29,6 +29,11 @@ class AimetTraceWrapper(nn.Module):
 def aimet_forward_fn(model, data):
     return model(return_loss=False, rescale=True, **data)
 
+def prepare_batch(batch, device):
+    batch = extract_data(batch)
+    batch = move_to_device(batch, device)
+    return batch
+
 def move_to_device(obj: Any, device: torch.device) -> Any:
     if torch.is_tensor(obj):
         return obj.to(device, non_blocking=True)

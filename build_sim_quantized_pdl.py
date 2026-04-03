@@ -58,7 +58,7 @@ from evaluation.eval_metrics import evaluate_model
 from ssr.projects.mmdet3d_plugin.SSR.model import build_model
 from quantization.quantize_function import load_quantized_model
 
-from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn
+from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn, prepare_batch
 
 from aimet_common.defs import QuantScheme
 from aimet_common.utils import CallbackFunc
@@ -85,6 +85,8 @@ QuantizationMixin.ignore(Dropout)
 from quantization.registered_ops import QuantizedLinear
 
 from evaluation.eval_dataset import extract_data
+
+from utils.config import import_plugin_modules, prepare_cfg
 
 warnings.filterwarnings("ignore")
 
@@ -122,28 +124,6 @@ def analyzer_eval_callback(model, callback_args):
         print(f"[WARN] analyzer_eval_callback dataset.evaluate failed: {exc}")
 
     return float(len(outputs))
-
-
-# -----------------------------------------------------------------------------
-# Build helpers from the detector script
-# -----------------------------------------------------------------------------
-def import_plugin_modules(cfg: Config, config_path: str) -> None:
-    if cfg.get("custom_imports", None):
-        from mmcv.utils import import_modules_from_strings
-        import_modules_from_strings(**cfg["custom_imports"])
-
-    if hasattr(cfg, "plugin") and cfg.plugin:
-        import importlib
-        if hasattr(cfg, "plugin_dir"):
-            module_dir = os.path.dirname(cfg.plugin_dir).split("/")
-        else:
-            module_dir = os.path.dirname(config_path).split("/")
-
-        module_path = module_dir[0]
-        for m in module_dir[1:]:
-            module_path = module_path + "." + m
-        print("[INFO] Importing plugin module:", module_path)
-        importlib.import_module(module_path)
 
 
 # -----------------------------------------------------------------------------
@@ -203,7 +183,6 @@ def maybe_run_bn_fold(wrapped_model: AimetTraceWrapper, dummy_input: torch.Tenso
             model=wrapped_model,
             input_shapes=tuple(dummy_input.shape),
         )
-
 
 def maybe_run_cle(wrapped_model: AimetTraceWrapper, dummy_input: torch.Tensor, enabled: bool) -> None:
     if not enabled:
@@ -303,36 +282,9 @@ def maybe_run_quant_analyzer(
         quant_scheme="tf_enhanced",
         default_param_bw=8,
         default_output_bw=8,
-        config_file=None,
+        config_path=None,
         results_dir=quant_analyzer_dir,
     )
-
-
-def create_quant_sim(
-    model: AimetTraceWrapper,
-    device: str,
-    dummy_input: torch.Tensor,
-    quant_scheme: str,
-    default_output_bw: int,
-    default_param_bw: int,
-    config_file: Optional[str],
-):
-    scheme_map = {
-        "tf": QuantScheme.post_training_tf,
-        "tf_enhanced": QuantScheme.post_training_tf_enhanced,
-    }
-    selected_scheme = scheme_map.get(quant_scheme, QuantScheme.post_training_tf_enhanced)
-
-    sim = QuantizationSimModel(
-        model=model.to(device).eval(),
-        dummy_input=dummy_input,
-        quant_scheme=selected_scheme,
-        default_output_bw=default_output_bw,
-        default_param_bw=default_param_bw,
-        config_file=config_file,
-        in_place=False,
-    )
-    return sim
 
 
 # -----------------------------------------------------------------------------
@@ -353,7 +305,7 @@ def parse_args(argv=None):
     parser.add_argument("--quant_scheme", type=str, default="tf_enhanced", help="AIMET quantization scheme")
     parser.add_argument("--default_output_bw", type=int, default=8, help="activation bitwidth")
     parser.add_argument("--default_param_bw", type=int, default=8, help="parameter bitwidth")
-    parser.add_argument("--config_file", type=str, default=None, help="AIMET quantsim config file")
+    parser.add_argument("--config_path", type=str, default=None, help="AIMET quantsim config file")
 
     parser.add_argument("--calib_batches", type=int, default=32, help="number of calibration batches")
     parser.add_argument("--eval_batches", type=int, default=-1, help="max eval batches, -1 means full set")
@@ -410,28 +362,12 @@ def main(args):
             torch.cuda.manual_seed_all(args.seed)
         set_random_seed(args.seed, deterministic=args.deterministic)
 
-    cfg = Config.fromfile(args.config)
-    if args.cfg_options is not None:
-        cfg.merge_from_dict(args.cfg_options)
-
-    import_plugin_modules(cfg, args.config)
-
-    if cfg.get("cudnn_benchmark", False):
-        torch.backends.cudnn.benchmark = True
-
     print("Building dataset / dataloader...")
-    dataset, data_loader = build_eval_loader(copy.deepcopy(cfg))
+    cfg, dataset, data_loader = build_eval_loader(args.config_path)
 
     print("Loading FP32 model...")
     model = build_model(cfg, args.checkpoint, dataset, args.fuse_conv_bn, args.device)
     model = model.to(args.device).eval()
-
-    # first_batch = next(iter(data_loader))
-    # prepared_batch = prepare_batch(first_batch, torch.device(args.device))
-    # dummy_input = prepared_batch["img"]
-
-    # print("Wrapping model for AIMET tracing...")
-    # wrapped_model = AimetTraceWrapper(model=model, initial_batch=prepared_batch).to(args.device).eval()
 
     first_batch = next(iter(data_loader))
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
@@ -476,7 +412,7 @@ def main(args):
         quant_scheme=args.quant_scheme,
         default_output_bw=args.default_output_bw,
         default_param_bw=args.default_param_bw,
-        config_file=args.config_file,
+        config_path=args.config_path,
     )
 
     if args.enable_seq_mse:
