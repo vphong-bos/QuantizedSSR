@@ -171,9 +171,6 @@ def load_quantized_model(
 
     ext = os.path.splitext(quant_weights)[1].lower()
 
-    # =========================
-    # Case 1: ONNX QDQ model
-    # =========================
     if ext == ".onnx":
         print("Detected ONNX model")
 
@@ -188,11 +185,15 @@ def load_quantized_model(
             providers=[provider],
         )
 
-        input_name = session.get_inputs()[0].name
-        output_names = [o.name for o in session.get_outputs()]
+        inputs = session.get_inputs()
+        outputs = session.get_outputs()
+
+        input_name = inputs[0].name if len(inputs) > 0 else None
+        output_names = [o.name for o in outputs]
 
         print(f"[ONNX] provider: {provider}")
         print(f"[ONNX] graph optimization level: {graph_optimization_level}")
+        print(f"[ONNX] num_inputs: {len(inputs)}")
         print(f"[ONNX] input: {input_name}")
         print(f"[ONNX] outputs: {output_names}")
 
@@ -205,9 +206,6 @@ def load_quantized_model(
             "graph_optimization_level": graph_optimization_level,
         }
 
-    # =========================
-    # Case 2: AIMET checkpoint
-    # =========================
     print("Detected AIMET checkpoint")
 
     sim = quantsim.load_checkpoint(quant_weights)
