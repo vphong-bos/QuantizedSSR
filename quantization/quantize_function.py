@@ -13,10 +13,11 @@ from quantization.registered_ops import QuantizedLinear
 from typing import Optional, Dict, Any
 
 class AimetTraceWrapper(nn.Module):
-    def __init__(self, model, forward_fn):
+    def __init__(self, model, forward_fn, static_inputs = None):
         super().__init__()
         self.model = model
         self.forward_fn = forward_fn
+        self.static_inputs = static_inputs
 
     def forward(self, data):
         """
@@ -26,10 +27,17 @@ class AimetTraceWrapper(nn.Module):
         We ignore return_loss/rescale and just pass data through.
         """
 
-        return self.forward_fn(self.model, data)
+        return self.forward_fn(self.model, data, self.static_inputs)
 
-def aimet_forward_fn(model, data):
-    print(data)
+import copy
+
+def aimet_forward_fn(model, img, static_inputs):
+    if not isinstance(static_inputs, dict):
+        raise TypeError(f"static_inputs must be dict, got {type(static_inputs)}")
+
+    data = copy.copy(static_inputs)
+    data["img"] = data
+
     return model(return_loss=False, rescale=True, **data)
 
 def move_to_device(obj: Any, device: torch.device) -> Any:
