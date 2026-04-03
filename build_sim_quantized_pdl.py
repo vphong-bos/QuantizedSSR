@@ -169,10 +169,13 @@ class AimetTraceWrapper(torch.nn.Module):
     def set_batch(self, batch: Dict[str, Any]) -> None:
         self.runtime_batch = batch
 
-    def forward(self, images: torch.Tensor):
-        batch = dict(self.runtime_batch)
-        batch["img"] = images
-        out = self.model(return_loss=False, rescale=True, **batch)
+    def forward(self, img, img_metas):
+        out = self.model(            
+            return_loss=False,
+            rescale=True,
+            img=img,
+            img_metas=img_metas 
+        )
         return self._make_traceable_output(out)
 
     @staticmethod
@@ -612,7 +615,10 @@ def main(args):
 
     first_batch = next(iter(data_loader))
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
-    dummy_input = prepared_batch["img"]
+    dummy_input = (
+        prepared_batch["img"],
+        prepared_batch["img_metas"]
+    )
 
     print("Wrapping model for AIMET tracing...")
     wrapped_model = AimetTraceWrapper(model=model, initial_batch=prepared_batch).to(args.device).eval()
