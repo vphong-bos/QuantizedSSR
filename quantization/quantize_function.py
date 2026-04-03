@@ -22,10 +22,9 @@ class AimetTraceWrapper(nn.Module):
         self.static_inputs = static_inputs
 
     def forward(self, img):
-        data = dict(self.static_inputs)
-        data["img"] = img
-        return self.model(return_loss=False, rescale=True, **data)
-
+        self.static_inputs["img"] = img
+        return self.model(return_loss=False, rescale=True, **self.static_inputs)
+    
 def aimet_forward_fn(model, data):
     return model(return_loss=False, rescale=True, **data)
 # import copy
