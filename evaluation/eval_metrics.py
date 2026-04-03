@@ -11,31 +11,60 @@ def get_model_result(model_obj, data):
 
     if backend == "torch":
         model = model_obj["model"]
+
         with torch.no_grad():
-            result = model(return_loss=False, rescale=True, **data)
+            if hasattr(model, "set_batch"):
+                model.set_batch(data)
+
+                img = data["img"]
+                if isinstance(img, list):
+                    assert len(img) == 1, f"Unexpected img list length: {len(img)}"
+                    img = img[0]
+
+                result = model(img)
+            else:
+                result = model(return_loss=False, rescale=True, **data)
+
         return result
 
     elif backend == "onnx":
         session = model_obj["session"]
         input_name = model_obj["input_name"]
 
+        if input_name is None:
+            raise ValueError(
+                "ONNX model has no input name. "
+                "The exported wrapped graph likely does not depend on the formal input tensor."
+            )
+
         img = data["img"]
-        if isinstance(img, torch.Tensor):
-            if img.device.type != "cpu":
-                img_np = img.detach().cpu().numpy()
+        if isinstance(img, list):
+            assert len(img) == 1, f"Unexpected img list length: {len(img)}"
+            img = img[0]
+
+        if not torch.is_tensor(img):
+            raise TypeError(f"Expected torch.Tensor for ONNX input, got {type(img)}")
+
+        img_np = img.detach().cpu().numpy()
+
+        # adapt wrapped-model export input shape
+        if img_np.ndim == 6:
+            if img_np.shape[1] == 1:
+                img_np = img_np[:, 0]
             else:
-                img_np = img.detach().numpy()
-        else:
-            img_np = img
+                raise ValueError(f"Unexpected 6D input shape for ONNX: {img_np.shape}")
 
-        ort_outputs = session.run(None, {input_name: img_np})
+        if img_np.ndim == 5:
+            b, n, c, h, w = img_np.shape
+            img_np = img_np.reshape(b * n, c, h, w)
 
-        # TODO:
-        # convert ort_outputs into the same result format as torch model output
-        return ort_outputs
+        if img_np.ndim != 4:
+            raise ValueError(f"ONNX expects rank-4 input, got shape {img_np.shape}")
+
+        result = session.run(None, {input_name: img_np})
+        return result
 
     raise ValueError(f"Unsupported backend: {backend}")
-
 
 def maybe_dump_heatmaps(model_obj):
     if model_obj["backend"] != "torch":
