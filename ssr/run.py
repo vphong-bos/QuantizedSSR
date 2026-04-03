@@ -32,6 +32,9 @@ from ssr.projects.mmdet3d_plugin.SSR.utils.builder import build_model
 from ssr.projects.mmdet3d_plugin.datasets import VADCustomNuScenesDataset
 
 from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn
+
+from quantization.registered_ops import QuantizedLinear
+
 from aimet_torch.v2 import quantsim
 
 from mmdet.apis import set_random_seed
