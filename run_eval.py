@@ -122,7 +122,6 @@ def main():
             max_samples=args.max_samples,
         )
 
-        print(fp32_results)
         tmp = {}
         tmp['bbox_results'] = fp32_results
         outputs = tmp
@@ -144,7 +143,6 @@ def main():
             max_samples=args.max_samples,
         )
 
-        print(quant_results)
         tmp = {}
         tmp['bbox_results'] = quant_results
         quant_results = tmp

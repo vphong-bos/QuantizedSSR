@@ -1703,18 +1703,18 @@ class VADCustomNuScenesDataset(NuScenesDataset):
                             detail['NuscMap_{}/{}_AP_thr_{}'.format(metric,name,thr)]=cls_aps[j][i]
 
         return detail
-    
-    def evaluate(self,
-                 results,
-                 is_ttnn=False,
-                 metric='bbox',
-                 map_metric='chamfer',
-                 logger=None,
-                 jsonfile_prefix=None,
-                 result_names=['pts_bbox'],
-                 show=False,
-                 out_dir=None,
-                 pipeline=None):
+
+def evaluate(self,
+            results,
+            is_ttnn=False,
+            metric='bbox',
+            map_metric='chamfer',
+            logger=None,
+            jsonfile_prefix=None,
+            result_names=['pts_bbox'],
+            show=False,
+            out_dir=None,
+            pipeline=None):
         """Evaluation in nuScenes protocol.
 
         Args:
@@ -1738,18 +1738,34 @@ class VADCustomNuScenesDataset(NuScenesDataset):
         if logger is None:
             global_logger = globals().get('logger')
             logger = global_logger if global_logger is not None else logging.getLogger(__name__)
-        print("\n--- Planning Metrics ---")
-        for k, v in metric_dict.items():
-            print(f"{k}: {v:.4f}")
+        logger.debug('\n')
+        logger.debug('-------------- Planning --------------')
+        metric_dict = None
+        num_valid = 0
+        for res in results:
+            if res['metric_results']['fut_valid_flag']:
+                num_valid += 1
+            else:
+                continue
+            if metric_dict is None:
+                metric_dict = copy.deepcopy(res['metric_results'])
+            else:
+                for k in res['metric_results'].keys():
+                    metric_dict[k] += res['metric_results'][k]
+        
+        for k in metric_dict:
+            metric_dict[k] = metric_dict[k] / num_valid
+            logger.debug("{}:{}".format(k, metric_dict[k]))
 
         result_files, tmp_dir = self.format_results(results, jsonfile_prefix, is_ttnn=is_ttnn)
 
         results_dict = dict()
 
-        if metric_dict is not None:
-            for k, v in metric_dict.items():
-                results_dict[k] = v
+        if tmp_dir is not None:
+            tmp_dir.cleanup()
 
+        if show:
+            self.show(results, out_dir, pipeline=pipeline)
         return results_dict
 
 def output_to_nusc_box(detection):
