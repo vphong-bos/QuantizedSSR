@@ -12,19 +12,76 @@ from quantization.registered_ops import QuantizedLinear
 
 from typing import Optional, Dict, Any
 
+import pickle
+import torch
+import numpy as np
 import torch.nn as nn
 
+
+def sanitize_for_aimet(obj):
+    """
+    Recursively keep only deepcopy/pickle-safe content.
+    Drops objects like cv2.VideoWriter hidden inside img_metas.
+    """
+    if obj is None:
+        return None
+
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+
+    if isinstance(obj, torch.Tensor):
+        return obj
+
+    if isinstance(obj, np.ndarray):
+        return obj
+
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            try:
+                cleaned = sanitize_for_aimet(v)
+                pickle.dumps(cleaned)
+                out[k] = cleaned
+            except Exception:
+                print(f"[sanitize] dropped key: {k} ({type(v)})")
+        return out
+
+    if isinstance(obj, list):
+        out = []
+        for i, v in enumerate(obj):
+            try:
+                cleaned = sanitize_for_aimet(v)
+                pickle.dumps(cleaned)
+                out.append(cleaned)
+            except Exception:
+                print(f"[sanitize] dropped list[{i}] ({type(v)})")
+        return out
+
+    if isinstance(obj, tuple):
+        out = []
+        for i, v in enumerate(obj):
+            try:
+                cleaned = sanitize_for_aimet(v)
+                pickle.dumps(cleaned)
+                out.append(cleaned)
+            except Exception:
+                print(f"[sanitize] dropped tuple[{i}] ({type(v)})")
+        return tuple(out)
+
+    # last chance: keep only if pickle-safe
+    pickle.dumps(obj)
+    return obj
 
 class AimetTraceWrapper(nn.Module):
     def __init__(self, model, static_inputs):
         super().__init__()
         self.model = model
-        self.static_inputs = static_inputs
+        self.static_inputs = sanitize_for_aimet(static_inputs)
 
     def forward(self, img):
-        self.static_inputs["img"] = img
-        return self.model(return_loss=False, rescale=True, **self.static_inputs)
-    
+        data = dict(self.static_inputs)   # shallow copy only
+        data["img"] = img
+        return self.model(return_loss=False, rescale=True, **data)
 def aimet_forward_fn(model, data):
     return model(return_loss=False, rescale=True, **data)
 # import copy

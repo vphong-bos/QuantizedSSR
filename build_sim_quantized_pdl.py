@@ -344,10 +344,44 @@ def main(args):
     model, _ = load_default_model(cfg, args.checkpoint, dataset, args.fuse_conv_bn, args.device)
     model = model.to(args.device).eval()
 
+    import pickle
+
+    def find_unpickleable(obj, prefix="root", seen=None):
+        if seen is None:
+            seen = set()
+
+        oid = id(obj)
+        if oid in seen:
+            return
+        seen.add(oid)
+
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                find_unpickleable(v, f"{prefix}.{k}", seen)
+            return
+
+        if isinstance(obj, list):
+            for i, v in enumerate(obj):
+                find_unpickleable(v, f"{prefix}[{i}]", seen)
+            return
+
+        if isinstance(obj, tuple):
+            for i, v in enumerate(obj):
+                find_unpickleable(v, f"{prefix}({i})", seen)
+            return
+
+        try:
+            pickle.dumps(obj)
+        except Exception as e:
+            print(prefix, type(obj), e)
+
     first_batch = next(iter(data_loader))
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
 
     static_inputs = {k: v for k, v in prepared_batch.items() if k != "img"}
+
+    find_unpickleable(static_inputs, "static_inputs")
+    find_unpickleable(model, "model")
 
     wrapped_model = AimetTraceWrapper(
         model=model,
