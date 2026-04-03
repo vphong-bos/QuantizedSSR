@@ -82,14 +82,9 @@ QuantizationMixin.ignore(Dropout)
 
 from quantization.registered_ops import QuantizedLinear
 
-from evaluation.eval_dataset import extract_data
-
-from utils.config import import_plugin_modules, prepare_cfg
-
 warnings.filterwarnings("ignore")
 
 OBJECTSAMPLERS = Registry("Object sampler")
-
 
 # def analyzer_forward_pass(model, callback_args):
 #     calib_loader, device, max_batches = callback_args
