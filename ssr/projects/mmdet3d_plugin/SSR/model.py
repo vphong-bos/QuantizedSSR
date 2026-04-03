@@ -2,7 +2,7 @@ from mmcv.cnn import fuse_conv_bn
 from mmcv.runner import load_checkpoint
 from ssr.projects.mmdet3d_plugin.SSR.utils.builder import build_model
 
-def build_model(
+def load_default_model(
     cfg,
     checkpoint_path,
     dataset=None,

@@ -55,8 +55,8 @@ from mmdet.datasets import DATASETS, replace_ImageToTensor
 
 from evaluation.eval_dataset import build_eval_loader
 from evaluation.eval_metrics import evaluate_model
-from ssr.projects.mmdet3d_plugin.SSR.model import build_model
 from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn, prepare_batch, create_quant_sim, calibration_forward_pass
+from ssr.projects.mmdet3d_plugin.SSR.model import load_default_model
 
 from aimet_common.defs import QuantScheme
 from aimet_common.utils import CallbackFunc
@@ -330,7 +330,7 @@ def main(args):
     cfg, dataset, data_loader = build_eval_loader(args.config_path)
 
     print("Loading FP32 model...")
-    model = build_model(cfg, args.checkpoint, dataset, args.fuse_conv_bn, args.device)
+    model = load_default_model(cfg, args.checkpoint, dataset, args.fuse_conv_bn, args.device)
     model = model.to(args.device).eval()
 
     first_batch = next(iter(data_loader))
