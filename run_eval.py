@@ -172,16 +172,16 @@ def main():
     fp32_results = None
     quant_results = None
 
-    kwargs = {}
-    kwargs['jsonfile_prefix'] = osp.join('test', 'hihihahahuhu')
+    # kwargs = {}
+    # kwargs['jsonfile_prefix'] = osp.join('test', 'hihihahahuhu')
 
-    eval_kwargs = cfg.get('evaluation', {}).copy()
-    for key in [
-        'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
-        'rule'
-    ]:
-        eval_kwargs.pop(key, None)
-    eval_kwargs.update(dict(metric=args.eval, **kwargs))
+    # eval_kwargs = cfg.get('evaluation', {}).copy()
+    # for key in [
+    #     'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
+    #     'rule'
+    # ]:
+    #     eval_kwargs.pop(key, None)
+    # eval_kwargs.update(dict(metric=args.eval, **kwargs))
 
 
     if args.fp32_weights:
@@ -210,7 +210,7 @@ def main():
 
         if rank == 0:
             print("======================================================")
-            print(dataset.evaluate(fp32_results, **eval_kwargs))
+            print(dataset.evaluate(fp32_results, metric=args.eval))
 
     if args.quant_weights:
         quant_obj = load_quantized_model(
@@ -229,7 +229,7 @@ def main():
 
         if rank == 0:
             print("======================================================")
-            print(dataset.evaluate(quant_results, **eval_kwargs))
+            print(dataset.evaluate(quant_results, metric=args.eval))
 
     if rank == 0 and fp32_results is not None and quant_results is not None:
         pcc, num_values = compute_pcc(fp32_results, quant_results)
