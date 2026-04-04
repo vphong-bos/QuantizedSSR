@@ -437,12 +437,6 @@ def main(args):
             "deformable_attention",
         ]
 
-        skip_layer_names.extend([
-            "model.pts_bbox_head.transformer.encoder.layers.0",
-            "model.pts_bbox_head.transformer.encoder.layers.1",
-            "model.pts_bbox_head.transformer.encoder.layers.2",
-        ])
-
         for name, module in model.named_modules():
             if any(k in name for k in exclude_keywords):
                 skip_layer_names.append(name)
@@ -452,7 +446,9 @@ def main(args):
     skip_layer_names = get_skip_layer_names(wrapped_model)
 
     skip_layer_names.extend([
-    
+        "model.pts_bbox_head.transformer.encoder.layers.0",
+        "model.pts_bbox_head.transformer.encoder.layers.1",
+        "model.pts_bbox_head.transformer.encoder.layers.2",
     ])
 
     print("Creating AIMET QuantizationSimModel...")
