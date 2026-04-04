@@ -164,14 +164,7 @@ def get_named_modules_to_ignore(model: nn.Module) -> List[Tuple[str, nn.Module]]
             ignored.append((name, module))
     return ignored
 
-def apply_quantmixin_ignore(model: nn.Module, modules_to_ignore=None):
-    """
-    Apply QuantizationMixin.ignore BEFORE QuantizationSimModel is created.
-
-    modules_to_ignore can be:
-      - list of module objects
-      - list of (name, module) pairs
-    """
+def apply_quantmixin_ignore(modules_to_ignore):
     if not modules_to_ignore:
         return
 
@@ -189,8 +182,7 @@ def apply_quantmixin_ignore(model: nn.Module, modules_to_ignore=None):
         if name is not None:
             print(f"[QuantizationMixin.ignore] {name}")
 
-    # Key point: do this before creating QuantizationSimModel
-    QuantizationMixin.ignore(*modules_only)
+    QuantizationMixin.ignore(modules_only)
 
 def create_quant_sim(
     model: AimetTraceWrapper,
@@ -210,7 +202,7 @@ def create_quant_sim(
 
     modules_to_ignore = get_named_modules_to_ignore(model)
 
-    apply_quantmixin_ignore(model, modules_to_ignore)
+    apply_quantmixin_ignore(modules_to_ignore)
 
     sim = QuantizationSimModel(
         model=model.to(device).eval(),
