@@ -547,16 +547,16 @@ def main(args):
         quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
         print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
 
-    # if not args.no_export:
-    #     export_dir = osp.join(args.work_dir, args.export_prefix)
-    #     os.makedirs(export_dir, exist_ok=True)
+    if not args.no_export:
+        export_dir = osp.join(args.work_dir, args.export_prefix)
+        os.makedirs(export_dir, exist_ok=True)
 
-    #     print(f"Exporting AIMET artifacts to: {export_dir}")
-    #     sim.export(
-    #         path=export_dir,
-    #         filename_prefix=args.export_prefix,
-    #         dummy_input=dummy_input,
-    #     )
+        print(f"Exporting AIMET artifacts to: {export_dir}")
+        sim.export(
+            path=export_dir,
+            filename_prefix=args.export_prefix,
+            dummy_input=dummy_input,
+        )
 
     if args.export_onnx:
         export_dir = osp.join(args.work_dir, args.export_prefix)
