@@ -437,7 +437,11 @@ def main(args):
             "deformable_attention",
         ]
 
-        skip_layer_names = []
+        skip_layer_names.extend([
+            "model.pts_bbox_head.transformer.encoder.layers.0",
+            "model.pts_bbox_head.transformer.encoder.layers.1",
+            "model.pts_bbox_head.transformer.encoder.layers.2",
+        ])
 
         for name, module in model.named_modules():
             if any(k in name for k in exclude_keywords):
