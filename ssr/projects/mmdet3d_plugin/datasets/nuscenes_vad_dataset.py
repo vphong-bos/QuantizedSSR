@@ -1670,68 +1670,78 @@ class VADCustomNuScenesDataset(NuScenesDataset):
         return detail
 
 def evaluate(self,
-            results,
-            is_ttnn=False,
-            metric='bbox',
-            map_metric='chamfer',
-            logger=None,
-            jsonfile_prefix=None,
-            result_names=['pts_bbox'],
-            show=False,
-            out_dir=None,
-            pipeline=None):
-        """Evaluation in nuScenes protocol.
+             results,
+             is_ttnn=False,
+             metric='bbox',
+             map_metric='chamfer',
+             logger=None,
+             jsonfile_prefix=None,
+             result_names=['pts_bbox'],
+             show=False,
+             out_dir=None,
+             pipeline=None):
+    if logger is None:
+        global_logger = globals().get('logger')
+        logger = global_logger if global_logger is not None else logging.getLogger(__name__)
 
-        Args:
-            results (list[dict]): Testing results of the dataset.
-            metric (str | list[str]): Metrics to be evaluated.
-            logger (logging.Logger | str | None): Logger used for printing
-                related information during evaluation. Default: None.
-            jsonfile_prefix (str | None): The prefix of json files. It includes
-                the file path and the prefix of filename, e.g., "a/b/prefix".
-                If not specified, a temp file will be created. Default: None.
-            show (bool): Whether to visualize.
-                Default: False.
-            out_dir (str): Path to save the visualization results.
-                Default: None.
-            pipeline (list[dict], optional): raw data loading for showing.
-                Default: None.
+    logger.debug('\n')
+    logger.debug('-------------- Planning --------------')
 
-        Returns:
-            dict[str, float]: Results of each evaluation metric.
-        """
-        if logger is None:
-            global_logger = globals().get('logger')
-            logger = global_logger if global_logger is not None else logging.getLogger(__name__)
-        logger.debug('\n')
-        logger.debug('-------------- Planning --------------')
-        metric_dict = None
-        num_valid = 0
-        for res in results:
-            if res['metric_results']['fut_valid_flag']:
-                num_valid += 1
-            else:
-                continue
-            if metric_dict is None:
-                metric_dict = copy.deepcopy(res['metric_results'])
-            else:
-                for k in res['metric_results'].keys():
-                    metric_dict[k] += res['metric_results'][k]
-        
+    metric_dict = None
+    num_valid = 0
+    for res in results:
+        if res['metric_results']['fut_valid_flag']:
+            num_valid += 1
+        else:
+            continue
+
+        if metric_dict is None:
+            metric_dict = copy.deepcopy(res['metric_results'])
+        else:
+            for k in res['metric_results'].keys():
+                metric_dict[k] += res['metric_results'][k]
+
+    results_dict = dict()
+    if metric_dict is not None and num_valid > 0:
         for k in metric_dict:
             metric_dict[k] = metric_dict[k] / num_valid
             logger.debug("{}:{}".format(k, metric_dict[k]))
+            results_dict[f'planning/{k}'] = metric_dict[k]
 
+    # Only run detection formatting/eval if pts_bbox is true detection output
+    sample_det = results[0].get('pts_bbox', None)
+    if isinstance(sample_det, dict) and 'boxes_3d' in sample_det:
         result_files, tmp_dir = self.format_results(results, jsonfile_prefix, is_ttnn=is_ttnn)
 
-        results_dict = dict()
+        if isinstance(result_files, dict):
+            for name in result_names:
+                if name in result_files:
+                    logger.debug(f'Evaluating bboxes of {name}')
+                    ret_dict = self._evaluate_single(
+                        result_files[name],
+                        metric=metric,
+                        map_metric=map_metric,
+                        result_name=name
+                    )
+                    results_dict.update(ret_dict)
+        else:
+            ret_dict = self._evaluate_single(
+                result_files,
+                metric=metric,
+                map_metric=map_metric,
+                result_name='pts_bbox'
+            )
+            results_dict.update(ret_dict)
 
         if tmp_dir is not None:
             tmp_dir.cleanup()
+    else:
+        logger.debug('Skipping detection evaluation because pts_bbox does not contain boxes_3d.')
 
-        if show:
-            self.show(results, out_dir, pipeline=pipeline)
-        return results_dict
+    if show:
+        self.show(results, out_dir, pipeline=pipeline)
+
+    return results_dict
 
 def output_to_nusc_box(detection):
     """Convert the output to the box class in the nuScenes.
