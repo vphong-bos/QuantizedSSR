@@ -449,6 +449,7 @@ def main(args):
         "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0",
         "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0",
         "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0",
+        "model.pts_bbox_head.transformer.encoder.layers.X.attentions.1.deformable_attention.value_proj",
     ])
 
     print("Creating AIMET QuantizationSimModel...")
@@ -488,11 +489,6 @@ def main(args):
     calib_time = time.time() - calib_start
     print(f"Calibration finished in {calib_time:.2f} s")
 
-    for name, module in sim.model.named_modules():
-        if "attentions.0.value_proj" in name:
-            print("FOUND:", name)
-            print(module)
-            
     if args.save_quant_checkpoint is not None:
         quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
         print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")

@@ -138,12 +138,6 @@ def main():
             provider=args.provider,
         )
 
-        for name, module in quant_obj["model"].named_modules():
-            if "attentions.0.value_proj" in name:
-                print("EVAL FOUND:", name)
-                print("EVAL TYPE:", type(module))
-                print("EVAL output_quantizers:", getattr(module, "output_quantizers", None))
-
         print("Evaluating quantized model...")
         quant_results = evaluate_model(
             model_obj=quant_obj,
