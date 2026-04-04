@@ -147,6 +147,7 @@ def create_quant_sim(
     default_output_bw: int,
     default_param_bw: int,
     config_path: Optional[str],
+    modules_to_ignore,
 ):
     scheme_map = {
         "tf": QuantScheme.post_training_tf,
@@ -163,6 +164,9 @@ def create_quant_sim(
         config_file=config_path,
         in_place=False,
     )
+
+    sim.exclude_layers_from_quantization(modules_to_ignore)
+
     return sim
 
 def load_quantized_model(

@@ -403,6 +403,19 @@ def main(args):
     #     eval_max_batches=args.eval_batches,
     # )
 
+    modules_to_ignore = [
+        "pts_bbox_head.positional_encoding.*",
+        "pts_bbox_head.transformer.level_embeds",
+        "pts_bbox_head.transformer.cams_embeds",
+        "pts_bbox_head.bev_embedding.weight",
+        "pts_bbox_head.query_embedding.weight",
+        "pts_bbox_head.map_instance_embedding.weight",
+        "pts_bbox_head.map_pts_embedding.weight",
+        "pts_bbox_head.ego_query.weight",
+        "pts_bbox_head.navi_embedding.weight",
+        "pts_bbox_head.way_point.weight",
+    ]
+
     print("Creating AIMET QuantizationSimModel...")
     sim = create_quant_sim(
         model=wrapped_model,
@@ -412,6 +425,7 @@ def main(args):
         default_output_bw=args.default_output_bw,
         default_param_bw=args.default_param_bw,
         config_path=args.config_path,
+        modules_to_ignore=modules_to_ignore
     )
 
     if args.enable_seq_mse:
