@@ -27,7 +27,7 @@ from mmcv.runner import get_dist_info
 
 from evaluation.eval_dataset import build_eval_loader
 from evaluation.eval_metrics import evaluate_model
-from ssr.projects.mmdet3d_plugin.SSR.model import build_model
+from ssr.projects.mmdet3d_plugin.SSR.model import load_default_model
 from quantization.quantize_function import load_quantized_model
 
 warnings.filterwarnings("ignore")
@@ -105,7 +105,7 @@ def main():
 
     if args.fp32_weights:
         print("Loading FP32 model...")
-        fp32_model, _ = build_model(
+        fp32_model, _ = load_default_model(
             cfg,
             args.fp32_weights,
             dataset,
