@@ -139,7 +139,7 @@ def get_onnx_graph_optimization_level(level):
 
     return level
 
-def exclude_layers(sim):
+def hard_disable_param_quantizers(sim):
     exclude_keywords = [
         "embedding",
         "positional_encoding",
@@ -149,25 +149,18 @@ def exclude_layers(sim):
         "map_reference_points",
         "code_weights",
         "norm",
-        "attention_weights"
+        "attention_weights",
     ]
 
-    for name, module in sim.model.named_modules():
-        if hasattr(module, 'param_quantizers'):
-            for pname, pq in module.param_quantizers.items():
-                full_name = f"{name}.{pname}" if name else pname
-                if any(k in full_name for k in exclude_keywords):
-                    if pq is not None:
-                        pq.enabled = False
-                        print(f"[EXCLUDE PARAM] {full_name}")
+    for module_name, module in sim.model.named_modules():
+        if not hasattr(module, "param_quantizers"):
+            continue
 
-    for name, module in sim.model.named_modules():
-        if hasattr(module, 'output_quantizers'):
-            if any(k in name for k in exclude_keywords):
-                for q in module.output_quantizers:
-                    if q is not None:
-                        q.enabled = False
-                        print(f"[EXCLUDE ACT] {name}")
+        for param_name in list(module.param_quantizers.keys()):
+            full_name = f"{module_name}.{param_name}" if module_name else param_name
+            if any(k in full_name for k in exclude_keywords):
+                module.param_quantizers[param_name] = None
+                print(f"[REMOVE PARAM QUANTIZER] {full_name}")
 
 def create_quant_sim(
     model: AimetTraceWrapper,
@@ -195,17 +188,9 @@ def create_quant_sim(
         in_place=False,
     )
 
-    exclude_layers(sim)
-
-    for name, module in sim.model.named_modules():
-        if "img_backbone.layer" in name and name.endswith(".relu"):
-            if hasattr(module, "output_quantizers"):
-                for q in module.output_quantizers:
-                    if q is not None:
-                        q.enabled = False
+    hard_disable_param_quantizers(sim)
 
     return sim
-
 
 
 def load_quantized_model(
