@@ -165,7 +165,18 @@ def create_quant_sim(
         in_place=False,
     )
 
-    sim.exclude_layers_from_quantization(modules_to_ignore)
+    import fnmatch
+
+    def get_modules_to_ignore(model, patterns):
+        modules = []
+        for name, module in model.named_modules():
+            for pattern in patterns:
+                if fnmatch.fnmatch(name, pattern):
+                    modules.append(module)
+                    break
+        return modules  
+
+    sim.exclude_layers_from_quantization(get_modules_to_ignore(model.model, modules_to_ignore))
 
     return sim
 
