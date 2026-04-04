@@ -1476,15 +1476,23 @@ class VADCustomNuScenesDataset(NuScenesDataset):
             logger.debug(f'{self.map_ann_file} exist, not update')
 
     def _format_bbox(self, results, jsonfile_prefix=None, score_thresh=0.2, is_ttnn=False):
-        """Convert detection results to standard nuScenes format."""
         nusc_annos = {}
         mapped_class_names = self.CLASSES
 
         logger.debug('Start to convert detection format...')
         for sample_id, det in enumerate(mmcv.track_iter_progress(results)):
-            annos = []
             sample_token = self.data_infos[sample_id]['token']
 
+            if isinstance(det, dict) and 'boxes_3d' not in det:
+                if 'pts_bbox' in det and isinstance(det['pts_bbox'], dict):
+                    det = det['pts_bbox']
+                elif 'img_bbox' in det and isinstance(det['img_bbox'], dict):
+                    det = det['img_bbox']
+
+            if not isinstance(det, dict) or 'boxes_3d' not in det:
+                raise KeyError(f"Expected detection dict with 'boxes_3d', got keys: {list(det.keys()) if isinstance(det, dict) else type(det)}")
+
+            annos = []
             boxes = output_to_nusc_box(det)
             boxes = lidar_nusc_box_to_global(
                 self.data_infos[sample_id],
