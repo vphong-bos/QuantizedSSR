@@ -138,7 +138,7 @@ def main():
             provider=args.provider,
         )
 
-        for name, module in quant_obj.model.named_modules():
+        for name, module in quant_obj["model"].named_modules():
             if "attentions.0.value_proj" in name:
                 print("EVAL FOUND:", name)
                 print("EVAL TYPE:", type(module))
