@@ -433,6 +433,8 @@ def main(args):
             ".norm",
             ".norms.",
             "can_bus_mlp",
+            "attentions",
+            "deformable_attention",
         ]
 
         skip_layer_names = []
@@ -446,10 +448,7 @@ def main(args):
     skip_layer_names = get_skip_layer_names(wrapped_model)
 
     skip_layer_names.extend([
-        "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0",
-        "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0",
-        "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0",
-        "model.pts_bbox_head.transformer.encoder.layers.X.attentions.1.deformable_attention.value_proj",
+    
     ])
 
     print("Creating AIMET QuantizationSimModel...")
