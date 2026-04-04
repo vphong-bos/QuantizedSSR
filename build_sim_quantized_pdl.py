@@ -483,6 +483,17 @@ def main(args):
     calib_time = time.time() - calib_start
     print(f"Calibration finished in {calib_time:.2f} s")
 
+    for name, module in sim.model.named_modules():
+        if "attentions.0.value_proj" in name:
+            print("FOUND:", name)
+            print("type:", type(module))
+            print("output_quantizers:", getattr(module, "output_quantizers", None))
+            if hasattr(module, "output_quantizers"):
+                q = module.output_quantizers[0]
+                print("quantizer is None:", q is None)
+                if q is not None:
+                    print("has encoding:", hasattr(q, "encoding") and q.encoding is not None)
+
     if args.save_quant_checkpoint is not None:
         quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
         print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
