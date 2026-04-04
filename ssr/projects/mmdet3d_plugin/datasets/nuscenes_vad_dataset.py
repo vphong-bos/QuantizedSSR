@@ -1636,7 +1636,10 @@ class VADCustomNuScenesDataset(NuScenesDataset):
         self.nusc = NuScenes(version=self.version, dataroot=self.data_root,
                              verbose=False)
 
+        if isinstance(result_path, tuple):
+            result_path = result_path[0]
         output_dir = osp.join(*osp.split(result_path)[:-1])
+
 
         eval_set_map = {
             'v1.0-mini': 'mini_val',
