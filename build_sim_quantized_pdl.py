@@ -438,7 +438,7 @@ def main(args):
         ]
 
         skip_layer_names = [
-            
+
         ]
 
         for name, module in model.named_modules():
@@ -453,6 +453,11 @@ def main(args):
         "model.pts_bbox_head.transformer.encoder.layers.0",
         "model.pts_bbox_head.transformer.encoder.layers.1",
         "model.pts_bbox_head.transformer.encoder.layers.2",
+        "model.pts_bbox_head.navi_se",
+        "model.pts_bbox_head.navi_se.mlp_reduce",
+        "model.pts_bbox_head.navi_se.act1",
+        "model.pts_bbox_head.navi_se.mlp_expand",
+        "model.pts_bbox_head.navi_se.gate",
     ])
 
     print("Creating AIMET QuantizationSimModel...")
