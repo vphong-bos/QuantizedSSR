@@ -1804,14 +1804,14 @@ class VADCustomNuScenesDataset(NuScenesDataset):
 
         result_files, tmp_dir = self.format_results(results, jsonfile_prefix, is_ttnn=is_ttnn)
 
-        results_dict = dict()
+        # results_dict = dict()
 
-        if tmp_dir is not None:
-            tmp_dir.cleanup()
+        # if tmp_dir is not None:
+        #     tmp_dir.cleanup()
 
-        if show:
-            self.show(results, out_dir, pipeline=pipeline)
-        return results_dict
+        # if show:
+        #     self.show(results, out_dir, pipeline=pipeline)
+        return metric_dict
 
 def output_to_nusc_box(detection):
     """Convert the output to the box class in the nuScenes.
