@@ -404,16 +404,16 @@ def main(args):
     # )
 
     modules_to_ignore = [
-        "pts_bbox_head.positional_encoding.*",
-        "pts_bbox_head.transformer.level_embeds",
-        "pts_bbox_head.transformer.cams_embeds",
-        "pts_bbox_head.bev_embedding.weight",
-        "pts_bbox_head.query_embedding.weight",
-        "pts_bbox_head.map_instance_embedding.weight",
-        "pts_bbox_head.map_pts_embedding.weight",
-        "pts_bbox_head.ego_query.weight",
-        "pts_bbox_head.navi_embedding.weight",
-        "pts_bbox_head.way_point.weight",
+        # "pts_bbox_head.positional_encoding.*",
+        # "pts_bbox_head.transformer.level_embeds",
+        # "pts_bbox_head.transformer.cams_embeds",
+        # "pts_bbox_head.bev_embedding.weight",
+        # "pts_bbox_head.query_embedding.weight",
+        # "pts_bbox_head.map_instance_embedding.weight",
+        # "pts_bbox_head.map_pts_embedding.weight",
+        # "pts_bbox_head.ego_query.weight",
+        # "pts_bbox_head.navi_embedding.weight",
+        # "pts_bbox_head.way_point.weight",
     ]
 
     print("Creating AIMET QuantizationSimModel...")
