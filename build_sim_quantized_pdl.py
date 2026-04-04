@@ -418,22 +418,21 @@ def main(args):
 
     def get_skip_layer_names(model):
         exclude_keywords = [
-            # "positional_encoding",
-            # "attention_weights",
-            # "reference_points",
-            # "map_reference_points",
-            # "bev_embedding",
-            # "query_embedding",
-            # "map_instance_embedding",
-            # "map_pts_embedding",
-            # "ego_query",
-            # "navi_embedding",
-            # "way_point",
-            # "tokenlearner.layer_norm",
-            # ".norm",
-            # ".norms.",
-            # "can_bus_mlp",
-            # ".attentions.0"
+            "positional_encoding",
+            "attention_weights",
+            "reference_points",
+            "map_reference_points",
+            "bev_embedding",
+            "query_embedding",
+            "map_instance_embedding",
+            "map_pts_embedding",
+            "ego_query",
+            "navi_embedding",
+            "way_point",
+            "tokenlearner.layer_norm",
+            ".norm",
+            ".norms.",
+            "can_bus_mlp",
         ]
 
         skip_layer_names = []
@@ -445,6 +444,12 @@ def main(args):
         return skip_layer_names
 
     skip_layer_names = get_skip_layer_names(wrapped_model)
+
+    skip_layer_names.extend([
+        "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0",
+        "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0",
+        "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0",
+    ])
 
     print("Creating AIMET QuantizationSimModel...")
     sim = create_quant_sim(
