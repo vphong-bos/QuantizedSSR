@@ -139,28 +139,58 @@ def get_onnx_graph_optimization_level(level):
 
     return level
 
-def hard_disable_param_quantizers(sim):
+from typing import Optional, Iterable, List, Tuple
+import torch
+import torch.nn as nn
+
+from aimet_common.defs import QuantScheme
+from aimet_torch.v2.quantsim import QuantizationSimModel
+from aimet_torch.v2.nn import QuantizationMixin
+
+
+def get_named_modules_to_ignore(model: nn.Module) -> List[Tuple[str, nn.Module]]:
     exclude_keywords = [
-        "embedding",
         "positional_encoding",
-        "level_embeds",
-        "cams_embeds",
+        "embedding",
+        "norm",
         "reference_points",
         "map_reference_points",
-        "code_weights",
-        "norm",
         "attention_weights",
     ]
 
-    for module_name, module in sim.model.named_modules():
-        if not hasattr(module, "param_quantizers"):
+    ignored = []
+    for name, module in model.named_modules():
+        if any(k in name for k in exclude_keywords):
+            ignored.append((name, module))
+    return ignored
+
+def apply_quantmixin_ignore(model: nn.Module, modules_to_ignore=None):
+    """
+    Apply QuantizationMixin.ignore BEFORE QuantizationSimModel is created.
+
+    modules_to_ignore can be:
+      - list of module objects
+      - list of (name, module) pairs
+    """
+    if not modules_to_ignore:
+        return
+
+    modules_only = []
+    for item in modules_to_ignore:
+        if isinstance(item, tuple):
+            name, module = item
+        else:
+            name, module = None, item
+
+        if module is None:
             continue
 
-        for param_name in list(module.param_quantizers.keys()):
-            full_name = f"{module_name}.{param_name}" if module_name else param_name
-            if any(k in full_name for k in exclude_keywords):
-                module.param_quantizers[param_name] = None
-                print(f"[REMOVE PARAM QUANTIZER] {full_name}")
+        modules_only.append(module)
+        if name is not None:
+            print(f"[QuantizationMixin.ignore] {name}")
+
+    # Key point: do this before creating QuantizationSimModel
+    QuantizationMixin.ignore(*modules_only)
 
 def create_quant_sim(
     model: AimetTraceWrapper,
@@ -178,6 +208,10 @@ def create_quant_sim(
     }
     selected_scheme = scheme_map.get(quant_scheme, QuantScheme.post_training_tf_enhanced)
 
+    modules_to_ignore = get_named_modules_to_ignore(model)
+
+    apply_quantmixin_ignore(model, modules_to_ignore)
+
     sim = QuantizationSimModel(
         model=model.to(device).eval(),
         dummy_input=dummy_input,
@@ -187,8 +221,6 @@ def create_quant_sim(
         config_file=config_path,
         in_place=False,
     )
-
-    hard_disable_param_quantizers(sim)
 
     return sim
 
