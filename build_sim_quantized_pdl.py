@@ -54,7 +54,6 @@ from mmdet.apis import set_random_seed
 from mmdet.datasets import DATASETS, replace_ImageToTensor
 
 from evaluation.eval_dataset import build_eval_loader
-from evaluation.eval_metrics import evaluate_model
 from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn, prepare_batch, create_quant_sim, calibration_forward_pass
 from ssr.projects.mmdet3d_plugin.SSR.model import load_default_model
 

@@ -95,21 +95,6 @@ def parse_args():
 
     return args
 
-
-def unwrap_detector_for_eval(model):
-    """
-    If AIMET checkpoint loads a wrapper model, unwrap the inner detector.
-
-    Expected cases:
-    - original detector model -> returned as-is
-    - AIMET wrapper with .model attribute -> return inner detector
-    """
-    if hasattr(model, "set_batch") and hasattr(model, "model"):
-        print("[INFO] Detected wrapped quant model. Using inner detector for evaluation.")
-        return model.model
-    return model
-
-
 def main():
     args = parse_args()
 
@@ -126,7 +111,6 @@ def main():
             args.fuse_conv_bn,
             args.device,
         )
-        fp32_model = unwrap_detector_for_eval(fp32_model)
         fp32_model.eval()
 
         print("Evaluating FP32 model...")
@@ -144,9 +128,6 @@ def main():
 
         if rank == 0:
             print("======================================================")
-            print("FP32 first result type:", type(fp32_results[0]))
-            if isinstance(fp32_results[0], dict):
-                print("FP32 first result keys:", fp32_results[0].keys())
             print(dataset.evaluate(fp32_results, metric=args.eval))
 
     if args.quant_weights:
@@ -157,36 +138,15 @@ def main():
             provider=args.provider,
         )
 
-        if quant_obj["backend"] == "onnx":
-            raise RuntimeError(
-                "ONNX quant model is not directly compatible with dataset.evaluate() in the current pipeline, "
-                "because it returns raw outputs instead of detector-format result dicts. "
-                "Use AIMET checkpoint evaluation, or add detector decode/postprocess for ONNX first."
-            )
-
-        quant_model = unwrap_detector_for_eval(quant_obj["model"])
-        quant_model.eval()
-
         print("Evaluating quantized model...")
         quant_results = evaluate_model(
-            model_obj={
-                "backend": "torch",
-                "model": quant_model,
-                "session": None,
-                "input_name": None,
-                "output_names": None,
-            },
+            model_obj=quant_obj,
             data_loader=data_loader,
             max_samples=args.max_samples,
         )
 
         if rank == 0:
             print("======================================================")
-            print("Quant first result type:", type(quant_results[0]))
-            if isinstance(quant_results[0], dict):
-                print("Quant first result keys:", quant_results[0].keys())
-            else:
-                print("Quant first result is not dict")
             print(dataset.evaluate(quant_results, metric=args.eval))
 
 
