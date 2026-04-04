@@ -282,7 +282,7 @@ def parse_args(argv=None):
     parser.add_argument("--default_param_bw", type=int, default=8, help="parameter bitwidth")
     parser.add_argument("--config_path", type=str, default=None, help="AIMET quantsim config file")
 
-    parser.add_argument("--calib_batches", type=int, default=32, help="number of calibration batches")
+    parser.add_argument("--calib_batches", type=int, default=1, help="number of calibration batches")
     parser.add_argument("--eval_batches", type=int, default=-1, help="max eval batches, -1 means full set")
     parser.add_argument("--eval_metric", type=str, nargs="+", default=["bbox"], help="dataset.evaluate metrics")
 
