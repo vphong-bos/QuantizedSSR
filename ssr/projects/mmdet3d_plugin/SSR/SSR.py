@@ -258,6 +258,27 @@ class SSR(nn.Module):
 
         return bbox_results
 
+    def forward_quant(self, img_metas, img=None, **kwargs):
+        if img is None:
+            raise ValueError("img must not be None in forward_quant")
+
+        if isinstance(img, list):
+            assert len(img) == 1, f"Unexpected img list length: {len(img)}"
+            img = img[0]
+
+        img_feats = self.extract_feat(img=img, img_metas=img_metas)
+
+        if isinstance(img_feats, (list, tuple)):
+            for feat in img_feats:
+                if torch.is_tensor(feat):
+                    return feat
+            raise RuntimeError("extract_feat returned no tensor")
+
+        if torch.is_tensor(img_feats):
+            return img_feats
+
+        raise RuntimeError(f"Unsupported forward_quant output type: {type(img_feats)}")
+
     def simple_test(
         self,
         outs,

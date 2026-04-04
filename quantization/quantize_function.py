@@ -22,19 +22,27 @@ class AimetTraceWrapper(torch.nn.Module):
 
     def forward(self, img):
         batch = self.runtime_batch
-        img_metas = batch["img_metas"]
+        assert batch is not None, "Batch not set"
 
-        if isinstance(img, list):
-            img = img[0]
-
-        feats = self.model.extract_feat(img=img, img_metas=img_metas)
-
-        if isinstance(feats, (list, tuple)):
-            return feats[0]
-        return feats
+        return self.model.forward_quant(
+            img=img,
+            img_metas=batch["img_metas"],
+        )
     
 def aimet_forward_fn(model, inputs):
-    return model(torch.zeros(1, device=next(model.parameters()).device))
+    if isinstance(inputs, dict):
+        img = inputs["img"]
+    elif isinstance(inputs, (list, tuple)):
+        img = inputs[0]
+    else:
+        img = inputs
+
+    if isinstance(img, list):
+        assert len(img) == 1, f"Unexpected img list length: {len(img)}"
+        img = img[0]
+
+    img = img.to(next(model.parameters()).device)
+    return model(img)
 
 def move_to_device(obj: Any, device: torch.device) -> Any:
     if torch.is_tensor(obj):
@@ -53,10 +61,16 @@ def prepare_batch(batch: Dict[str, Any], device: torch.device) -> Dict[str, Any]
     return batch
 
 @torch.no_grad()
-def run_model_on_batch(model: AimetTraceWrapper, batch: Dict[str, Any], device: torch.device):
+def run_model_on_batch(model, batch, device):
     batch = prepare_batch(batch, device)
     model.set_batch(batch)
-    return model(batch["img"])
+
+    img = batch["img"]
+    if isinstance(img, list):
+        assert len(img) == 1, f"Unexpected img list length: {len(img)}"
+        img = img[0]
+
+    return model(img)
 
 @torch.no_grad()
 def calibration_forward_pass(model, forward_pass_args):
@@ -65,29 +79,26 @@ def calibration_forward_pass(model, forward_pass_args):
 
     seen_samples = 0
 
-    total_batches = len(dataloader)
+    total = len(dataloader)
     if max_batches is not None and max_batches > 0:
-        total_batches = min(total_batches, max_batches)
+        total = min(total, max_batches)
 
-    pbar = tqdm(total=total_batches, desc="Calibration", dynamic_ncols=True)
+    pbar = tqdm(total=total, desc="Calibration", dynamic_ncols=True)
 
     for batch_idx, batch in enumerate(dataloader):
         prepared = prepare_batch(batch, device)
+        model.set_batch(prepared)
 
-        if hasattr(model, "set_batch"):
-            model.set_batch(prepared)
-            _ = model(prepared["img"])
-        else:
-            _ = model(prepared["img"])
+        img = prepared["img"]
+        if isinstance(img, list):
+            assert len(img) == 1, f"Unexpected img list length: {len(img)}"
+            img = img[0]
 
-        batch_img = prepared["img"]
-        if isinstance(batch_img, list):
-            batch_img = batch_img[0]
+        _ = model(img)
 
-        current_bs = batch_img.size(0) if torch.is_tensor(batch_img) else 1
+        current_bs = img.size(0) if torch.is_tensor(img) else 1
         seen_samples += current_bs
 
-        # update progress bar
         pbar.update(1)
         pbar.set_postfix({
             "samples": seen_samples
