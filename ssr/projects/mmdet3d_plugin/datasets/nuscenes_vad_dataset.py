@@ -1476,41 +1476,71 @@ class VADCustomNuScenesDataset(NuScenesDataset):
             logger.debug(f'{self.map_ann_file} exist, not update')
 
     def _format_bbox(self, results, jsonfile_prefix=None, score_thresh=0.2, is_ttnn=False):
-        """Convert the results to the standard format."""
+        """Convert detection results to standard nuScenes format."""
+        nusc_annos = {}
+        mapped_class_names = self.CLASSES
 
-        plan_annos = {}
-        plan_gts = {}
-
-        for sample_id, det in enumerate(results):
+        logger.debug('Start to convert detection format...')
+        for sample_id, det in enumerate(mmcv.track_iter_progress(results)):
+            annos = []
             sample_token = self.data_infos[sample_id]['token']
 
-            plan_annos[sample_token] = [det['ego_fut_preds'], det['ego_fut_cmd']]
-            plan_gts[sample_token] = [
-                self.data_infos[sample_id]['gt_ego_fut_trajs'],
-                self.data_infos[sample_id]['gt_ego_fut_cmd']
-            ]
+            boxes = output_to_nusc_box(det)
+            boxes = lidar_nusc_box_to_global(
+                self.data_infos[sample_id],
+                boxes,
+                mapped_class_names,
+                self.custom_eval_detection_configs,
+                self.custom_eval_version,
+            )
 
-        if not os.path.exists(self.map_ann_file):
-            self._format_gt()
+            for box in boxes:
+                name = mapped_class_names[box.label]
+                if np.sqrt(box.velocity[0] ** 2 + box.velocity[1] ** 2) > 0.2:
+                    if name in ['car', 'construction_vehicle', 'bus', 'truck', 'trailer']:
+                        attr = 'vehicle.moving'
+                    elif name in ['bicycle', 'motorcycle']:
+                        attr = 'cycle.with_rider'
+                    else:
+                        attr = self.DefaultAttribute[name]
+                else:
+                    if name in ['pedestrian']:
+                        attr = 'pedestrian.standing'
+                    elif name in ['bus']:
+                        attr = 'vehicle.stopped'
+                    else:
+                        attr = self.DefaultAttribute[name]
 
-        result_key = f"plan_results_{'ttnn' if is_ttnn else 'torch'}"
+                nusc_anno = dict(
+                    sample_token=sample_token,
+                    translation=box.center.tolist(),
+                    size=box.wlh.tolist(),
+                    rotation=box.orientation.elements.tolist(),
+                    velocity=box.velocity[:2].tolist(),
+                    detection_name=name,
+                    detection_score=box.score,
+                    attribute_name=attr,
+                    traj=box.fut_trajs.tolist() if hasattr(box, "fut_trajs") else [],
+                )
+                annos.append(nusc_anno)
+
+            nusc_annos[sample_token] = annos
+
         nusc_submissions = {
             'meta': self.modality,
-            result_key: plan_annos,
-            'plan_gts': plan_gts,
+            'results': nusc_annos,
         }
 
         mmcv.mkdir_or_exist(jsonfile_prefix)
-
         suffix = 'ttnn' if is_ttnn else 'torch'
         if self.use_pkl_result:
             res_path = osp.join(jsonfile_prefix, f'{suffix}_results_nusc.pkl')
         else:
             res_path = osp.join(jsonfile_prefix, f'{suffix}_results_nusc.json')
 
+        logger.debug('Results writes to', res_path)
         mmcv.dump(nusc_submissions, res_path)
-
-        return nusc_submissions, res_path
+        return res_path
 
     def _format_bbox_realtime(self, results, is_ttnn=False, sample_idx=0):
         """Convert the results to the standard format.
@@ -1560,13 +1590,6 @@ class VADCustomNuScenesDataset(NuScenesDataset):
         return nusc_submissions
     
     def format_results(self, results, jsonfile_prefix=None, is_ttnn=False):
-        """Format the results to json (standard format for evaluation).
-
-        Returns:
-            tuple: (result_files, tmp_dir)
-                - result_files: path string or dict[name -> path string]
-                - tmp_dir: TemporaryDirectory or None
-        """
         if isinstance(results, dict):
             results = results['bbox_results']
         assert isinstance(results, list)
@@ -1577,34 +1600,17 @@ class VADCustomNuScenesDataset(NuScenesDataset):
         else:
             tmp_dir = None
 
-        # Case 1:
-        # results is already a plain list of prediction dicts
         if not ('pts_bbox' in results[0] or 'img_bbox' in results[0]):
-            _, res_path = self._format_bbox(
-                results,
-                jsonfile_prefix,
-                is_ttnn=is_ttnn,
-            )
-            result_files = res_path
-
-        # Case 2:
-        # results is list of dicts with keys like pts_bbox / img_bbox
+            result_files = self._format_bbox(results, jsonfile_prefix, is_ttnn=is_ttnn)
         else:
             result_files = dict()
             for name in results[0]:
                 if name == 'metric_results':
                     continue
-
                 logger.debug(f'\nFormating bboxes of {name}')
                 results_ = [out[name] for out in results]
                 tmp_file_ = osp.join(jsonfile_prefix, name)
-
-                _, res_path = self._format_bbox(
-                    results_,
-                    tmp_file_,
-                    is_ttnn=is_ttnn,
-                )
-                result_files[name] = res_path
+                result_files[name] = self._format_bbox(results_, tmp_file_, is_ttnn=is_ttnn)
 
         return result_files, tmp_dir
 
@@ -1614,20 +1620,10 @@ class VADCustomNuScenesDataset(NuScenesDataset):
                         metric='bbox',
                         map_metric='chamfer',
                         result_name='pts_bbox'):
-        """Evaluation for a single model in nuScenes protocol."""
         detail = dict()
         from nuscenes import NuScenes
 
-        self.nusc = NuScenes(
-            version=self.version,
-            dataroot=self.data_root,
-            verbose=False,
-        )
-
-        if not isinstance(result_path, (str, bytes, os.PathLike)):
-            raise TypeError(
-                f"_evaluate_single expects a path string, got {type(result_path)}: {result_path}"
-            )
+        self.nusc = NuScenes(version=self.version, dataroot=self.data_root, verbose=False)
 
         output_dir = osp.join(*osp.split(result_path)[:-1])
 
@@ -1649,7 +1645,21 @@ class VADCustomNuScenesDataset(NuScenesDataset):
         self.nusc_eval.main(plot_examples=0, render_curves=False)
 
         metrics = mmcv.load(osp.join(output_dir, 'metrics_summary.json'))
-        # keep your remaining metric parsing code below unchanged
+        metric_prefix = f'{result_name}_NuScenes'
+
+        for name in self.CLASSES:
+            for k, v in metrics['label_aps'][name].items():
+                detail[f'{metric_prefix}/{name}_AP_dist_{k}'] = float(f'{v:.4f}')
+            for k, v in metrics['label_tp_errors'][name].items():
+                detail[f'{metric_prefix}/{name}_{k}'] = float(f'{v:.4f}')
+
+        for k, v in metrics['tp_errors'].items():
+            detail[f'{metric_prefix}/{self.ErrNameMapping[k]}'] = float(f'{v:.4f}')
+
+        detail[f'{metric_prefix}/NDS'] = metrics['nd_score']
+        detail[f'{metric_prefix}/mAP'] = metrics['mean_ap']
+
+        return detail
 
 def evaluate(self,
             results,
