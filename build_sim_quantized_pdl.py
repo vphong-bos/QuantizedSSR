@@ -530,33 +530,32 @@ def main(args):
         quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
         print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
 
-    if not args.no_export:
+    # if not args.no_export:
+    #     export_dir = osp.join(args.work_dir, args.export_prefix)
+    #     os.makedirs(export_dir, exist_ok=True)
+
+    #     print(f"Exporting AIMET artifacts to: {export_dir}")
+    #     sim.export(
+    #         path=export_dir,
+    #         filename_prefix=args.export_prefix,
+    #         dummy_input=dummy_input,
+    #     )
+
+    if args.export_onnx:
         export_dir = osp.join(args.work_dir, args.export_prefix)
-        os.makedirs(export_dir, exist_ok=True)
-
-        print(f"Exporting AIMET artifacts to: {export_dir}")
-        sim.export(
-            path=export_dir,
-            filename_prefix=args.export_prefix,
-            dummy_input=dummy_input,
+        onnx_path = osp.join(export_dir, f"{args.export_prefix}.onnx")
+        print("Exporting quantized model to ONNX QDQ...")
+        aimet_onnx.export(
+            sim.model,
+            dummy_input,
+            onnx_path,
+            input_names=["input"],
+            output_names=["output"],
+            opset_version=20,
+            export_int32_bias=True,
+            prequantize_constants=True
         )
-
-        if args.export_onnx:
-            onnx_path = osp.join(export_dir, f"{args.export_prefix}.onnx")
-            print("Exporting quantized model to ONNX QDQ...")
-            aimet_onnx.export(
-                sim.model,
-                dummy_input,
-                onnx_path,
-                input_names=["input"],
-                output_names=["output"],
-                opset_version=20,
-                export_int32_bias=True,
-                prequantize_constants=True
-            )
-            print(f"Exported QDQ ONNX to: {onnx_path}")
-    else:
-        print("Export disabled")
+        print(f"Exported QDQ ONNX to: {onnx_path}")
 
     rank, _ = get_dist_info()
     if rank == 0:
