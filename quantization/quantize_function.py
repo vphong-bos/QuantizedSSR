@@ -20,10 +20,12 @@ class AimetTraceWrapper(torch.nn.Module):
     def set_batch(self, batch):
         self.runtime_batch = batch
 
-    def forward(self, img):
-        batch = self.runtime_batch
-        assert batch is not None, "Batch not set"
+    def forward(self, img=None, **kwargs):
+        if "return_loss" in kwargs or "rescale" in kwargs or "img_metas" in kwargs:
+            return self.model(img=img, **kwargs)
 
+        batch = self.runtime_batch
+        assert batch is not None
         return self.model.forward_quant(
             img=img,
             img_metas=batch["img_metas"],
