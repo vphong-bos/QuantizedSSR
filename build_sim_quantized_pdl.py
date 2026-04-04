@@ -416,48 +416,77 @@ def main(args):
     #     # "pts_bbox_head.way_point.weight",
     # ]
 
+    def should_skip(name: str) -> bool:
+        return (
+            # whole transformer stack
+            "pts_bbox_head.transformer" in name
+            or "transformer.encoder.layers" in name
+            or "attentions" in name
+            or "deformable_attention" in name
+            or "ffns" in name
+
+            # transformer-adjacent / geometric / positional
+            or "positional_encoding" in name
+            or "reference_points" in name
+            or "map_reference_points" in name
+            or "level_embeds" in name
+            or "cams_embeds" in name
+
+            # embeddings / learned queries
+            or "bev_embedding" in name
+            or "query_embedding" in name
+            or "map_instance_embedding" in name
+            or "map_pts_embedding" in name
+            or "ego_query" in name
+            or "navi_embedding" in name
+            or "way_point" in name
+            or "embedding" in name
+
+            # norms
+            or ".norm" in name
+            or ".norms." in name
+            or "layer_norm" in name
+
+            # fragile side branches
+            or "can_bus_mlp" in name
+            or "navi_se" in name
+            or "tokenlearner" in name
+            or "tokenfuser" in name
+            or "latent_decoder" in name
+            or "way_decoder" in name
+            or "latent_world_model" in name
+            or "action_mln" in name
+            or "pos_mln" in name
+
+            # optional: keep all planning / traj / map heads float for maximum safety
+            or "traj_branches" in name
+            or "traj_cls_branches" in name
+            or "map_cls_branches" in name
+            or "map_reg_branches" in name
+            or "ego_fut_decoder" in name
+        )
+
     def get_skip_layer_names(model):
-        exclude_keywords = [
-            "positional_encoding",
-            "attention_weights",
-            "reference_points",
-            "map_reference_points",
-            "bev_embedding",
-            "query_embedding",
-            "map_instance_embedding",
-            "map_pts_embedding",
-            "ego_query",
-            "navi_embedding",
-            "way_point",
-            "tokenlearner.layer_norm",
-            ".norm",
-            ".norms.",
-            "can_bus_mlp",
-            "attentions",
-            "deformable_attention",
-        ]
-
-        skip_layer_names = [
-
-        ]
+        skip_layer_names = []
 
         for name, module in model.named_modules():
-            if any(k in name for k in exclude_keywords):
+            if should_skip(name):
                 skip_layer_names.append(name)
 
+        skip_layer_names = list(dict.fromkeys(skip_layer_names))
         return skip_layer_names
 
     skip_layer_names = get_skip_layer_names(wrapped_model)
 
     skip_layer_names.extend([
-        "model.pts_bbox_head.transformer.encoder.layers.0",
-        "model.pts_bbox_head.transformer.encoder.layers.1",
-        "model.pts_bbox_head.transformer.encoder.layers.2",
-        "model.pts_bbox_head.navi_se",
-        "model.pts_bbox_head.navi_se.mlp_reduce",
-        "model.pts_bbox_head.navi_se.act1",
-        "model.pts_bbox_head.navi_se.mlp_expand",
-        "model.pts_bbox_head.navi_se.gate",
+        # "model.pts_bbox_head.transformer.encoder.layers.0",
+        # "model.pts_bbox_head.transformer.encoder.layers.1",
+        # "model.pts_bbox_head.transformer.encoder.layers.2",
+        # "model.pts_bbox_head.navi_se",
+        # "model.pts_bbox_head.navi_se.mlp_reduce",
+        # "model.pts_bbox_head.navi_se.act1",
+        # "model.pts_bbox_head.navi_se.mlp_expand",
+        # "model.pts_bbox_head.navi_se.gate",
     ])
 
     print("Creating AIMET QuantizationSimModel...")
