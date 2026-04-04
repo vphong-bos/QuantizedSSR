@@ -437,6 +437,10 @@ def main(args):
             "deformable_attention",
         ]
 
+        skip_layer_names = [
+            
+        ]
+
         for name, module in model.named_modules():
             if any(k in name for k in exclude_keywords):
                 skip_layer_names.append(name)
