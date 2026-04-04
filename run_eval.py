@@ -173,8 +173,7 @@ def main():
     quant_results = None
 
     kwargs = {}
-    kwargs['jsonfile_prefix'] = osp.join('test', args.config.split(
-        '/')[-1].split('.')[-2], time.ctime().replace(' ', '_').replace(':', '_'))
+    kwargs['jsonfile_prefix'] = osp.join('test', 'hihihahahuhu')
 
     eval_kwargs = cfg.get('evaluation', {}).copy()
     for key in [
