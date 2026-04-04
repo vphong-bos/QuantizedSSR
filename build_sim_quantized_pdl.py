@@ -432,7 +432,8 @@ def main(args):
             "tokenlearner.layer_norm",
             ".norm",
             ".norms.",
-            "can_bus_mlp"
+            "can_bus_mlp",
+            ".attentions.0"
         ]
 
         skip_layer_names = []
