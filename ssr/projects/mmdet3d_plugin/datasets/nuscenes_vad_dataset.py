@@ -1799,7 +1799,8 @@ class VADCustomNuScenesDataset(NuScenesDataset):
         
         for k in metric_dict:
             metric_dict[k] = metric_dict[k] / num_valid
-            logger.debug("{}:{}".format(k, metric_dict[k]))
+            print("{}:\t{}".format(k, metric_dict[k]))
+            # logger.debug("{}:{}".format(k, metric_dict[k]))
 
         result_files, tmp_dir = self.format_results(results, jsonfile_prefix, is_ttnn=is_ttnn)
 
