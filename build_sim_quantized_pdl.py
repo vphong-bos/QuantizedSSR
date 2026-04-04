@@ -403,18 +403,46 @@ def main(args):
     #     eval_max_batches=args.eval_batches,
     # )
 
-    modules_to_ignore = [
-        # "pts_bbox_head.positional_encoding.*",
-        # "pts_bbox_head.transformer.level_embeds",
-        # "pts_bbox_head.transformer.cams_embeds",
-        # "pts_bbox_head.bev_embedding.weight",
-        # "pts_bbox_head.query_embedding.weight",
-        # "pts_bbox_head.map_instance_embedding.weight",
-        # "pts_bbox_head.map_pts_embedding.weight",
-        # "pts_bbox_head.ego_query.weight",
-        # "pts_bbox_head.navi_embedding.weight",
-        # "pts_bbox_head.way_point.weight",
-    ]
+    # skip_layer_names = [
+    #     # "pts_bbox_head.positional_encoding.*",
+    #     # "pts_bbox_head.transformer.level_embeds",
+    #     # "pts_bbox_head.transformer.cams_embeds",
+    #     # "pts_bbox_head.bev_embedding.weight",
+    #     # "pts_bbox_head.query_embedding.weight",
+    #     # "pts_bbox_head.map_instance_embedding.weight",
+    #     # "pts_bbox_head.map_pts_embedding.weight",
+    #     # "pts_bbox_head.ego_query.weight",
+    #     # "pts_bbox_head.navi_embedding.weight",
+    #     # "pts_bbox_head.way_point.weight",
+    # ]
+
+    def get_skip_layer_names(model):
+        exclude_keywords = [
+            "positional_encoding",
+            "attention_weights",
+            "reference_points",
+            "map_reference_points",
+            "bev_embedding",
+            "query_embedding",
+            "map_instance_embedding",
+            "map_pts_embedding",
+            "ego_query",
+            "navi_embedding",
+            "way_point",
+            "tokenlearner.layer_norm",
+            ".norm",
+            ".norms.",
+        ]
+
+        skip_layer_names = []
+
+        for name, module in model.named_modules():
+            if any(k in name for k in exclude_keywords):
+                skip_layer_names.append(name)
+
+        return skip_layer_names
+
+    skip_layer_names = get_skip_layer_names(wrapped_model)
 
     print("Creating AIMET QuantizationSimModel...")
     sim = create_quant_sim(
@@ -425,7 +453,7 @@ def main(args):
         default_output_bw=args.default_output_bw,
         default_param_bw=args.default_param_bw,
         config_path=args.config_path,
-        modules_to_ignore=modules_to_ignore
+        skip_layer_names=skip_layer_names
     )
 
     if args.enable_seq_mse:

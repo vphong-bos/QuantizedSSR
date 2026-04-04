@@ -185,24 +185,22 @@ def apply_quantmixin_ignore(modules_to_ignore):
     QuantizationMixin.ignore(modules_only)
 
 def create_quant_sim(
-    model: AimetTraceWrapper,
-    device: str,
-    dummy_input: torch.Tensor,
-    quant_scheme: str,
-    default_output_bw: int,
-    default_param_bw: int,
-    config_path: Optional[str],
-    modules_to_ignore,
+    model,
+    device,
+    dummy_input,
+    quant_scheme,
+    default_output_bw,
+    default_param_bw,
+    config_path=None,
+    skip_layer_names=None,
 ):
     scheme_map = {
         "tf": QuantScheme.post_training_tf,
         "tf_enhanced": QuantScheme.post_training_tf_enhanced,
     }
-    selected_scheme = scheme_map.get(quant_scheme, QuantScheme.post_training_tf_enhanced)
-
-    modules_to_ignore = get_named_modules_to_ignore(model)
-
-    apply_quantmixin_ignore(modules_to_ignore)
+    selected_scheme = scheme_map.get(
+        quant_scheme, QuantScheme.post_training_tf_enhanced
+    )
 
     sim = QuantizationSimModel(
         model=model.to(device).eval(),
@@ -214,8 +212,28 @@ def create_quant_sim(
         in_place=False,
     )
 
-    return sim
+    name_to_module = dict(sim.model.named_modules())
 
+    layers_to_exclude = []
+    missing = []
+
+    if skip_layer_names is not None:
+        for name in skip_layer_names:
+            if name in name_to_module:
+                layers_to_exclude.append(name_to_module[name])
+                print(f"[EXCLUDE LAYER] {name}")
+            else:
+                missing.append(name)
+
+    if missing:
+        print("Missing layer names:")
+        for name in missing:
+            print("  ", name)
+
+    if layers_to_exclude:
+        sim.exclude_layers_from_quantization(layers_to_exclude)
+
+    return sim
 
 def load_quantized_model(
     quant_weights,
