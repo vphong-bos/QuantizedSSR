@@ -89,6 +89,11 @@ def parse_args():
         default="CPUExecutionProvider",
         help="Choose onnx provider",
     )
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="Eval show or not",
+    )
     args = parser.parse_args()
     if "LOCAL_RANK" not in os.environ:
         os.environ["LOCAL_RANK"] = str(args.local_rank)
@@ -128,7 +133,7 @@ def main():
 
         if rank == 0:
             print("======================================================")
-            print(dataset.evaluate(fp32_results, metric=args.eval))
+            print(dataset.evaluate(fp32_results, metric=args.eval, show=args.show))
 
     if args.quant_weights:
         quant_obj = load_quantized_model(
@@ -147,7 +152,7 @@ def main():
 
         if rank == 0:
             print("======================================================")
-            print(dataset.evaluate(quant_results, metric=args.eval))
+            print(dataset.evaluate(quant_results, metric=args.eval, show=args.show))
 
 
 if __name__ == "__main__":
