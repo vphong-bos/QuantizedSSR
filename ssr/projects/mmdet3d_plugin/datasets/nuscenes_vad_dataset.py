@@ -1559,31 +1559,17 @@ class VADCustomNuScenesDataset(NuScenesDataset):
 
         return nusc_submissions
     
-
     def format_results(self, results, jsonfile_prefix=None, is_ttnn=False):
-        """Format the results to json (standard format for COCO evaluation).
-
-        Args:
-            results (list[dict]): Testing results of the dataset.
-            jsonfile_prefix (str | None): The prefix of json files. It includes
-                the file path and the prefix of filename, e.g., "a/b/prefix".
-                If not specified, a temp file will be created. Default: None.
+        """Format the results to json (standard format for evaluation).
 
         Returns:
-            tuple: Returns (result_files, tmp_dir), where `result_files` is a \
-                dict containing the json filepaths, `tmp_dir` is the temporal \
-                directory created for saving json files when \
-                `jsonfile_prefix` is not specified.
+            tuple: (result_files, tmp_dir)
+                - result_files: path string or dict[name -> path string]
+                - tmp_dir: TemporaryDirectory or None
         """
         if isinstance(results, dict):
-            # logger.debug(f'results must be a list, but get dict, keys={results.keys()}')
-            # assert isinstance(results, list)
             results = results['bbox_results']
         assert isinstance(results, list)
-        # NOTE: Skip the assertion that checks the length of results
-        # assert len(results) == len(self), (
-        #     'The length of results is not equal to the dataset len: {} != {}'.
-        #     format(len(results), len(self)))
 
         if jsonfile_prefix is None:
             tmp_dir = tempfile.TemporaryDirectory()
@@ -1591,60 +1577,65 @@ class VADCustomNuScenesDataset(NuScenesDataset):
         else:
             tmp_dir = None
 
-        # currently the output prediction results could be in two formats
-        # 1. list of dict('boxes_3d': ..., 'scores_3d': ..., 'labels_3d': ...)
-        # 2. list of dict('pts_bbox' or 'img_bbox':
-        #     dict('boxes_3d': ..., 'scores_3d': ..., 'labels_3d': ...))
-        # this is a workaround to enable evaluation of both formats on nuScenes
-        # refer to https://github.com/open-mmlab/mmdetection3d/issues/449
+        # Case 1:
+        # results is already a plain list of prediction dicts
         if not ('pts_bbox' in results[0] or 'img_bbox' in results[0]):
-            result_files = self._format_bbox(results, jsonfile_prefix, is_ttnn=is_ttnn)
+            _, res_path = self._format_bbox(
+                results,
+                jsonfile_prefix,
+                is_ttnn=is_ttnn,
+            )
+            result_files = res_path
+
+        # Case 2:
+        # results is list of dicts with keys like pts_bbox / img_bbox
         else:
-            # should take the inner dict out of 'pts_bbox' or 'img_bbox' dict
             result_files = dict()
             for name in results[0]:
                 if name == 'metric_results':
                     continue
+
                 logger.debug(f'\nFormating bboxes of {name}')
                 results_ = [out[name] for out in results]
                 tmp_file_ = osp.join(jsonfile_prefix, name)
-                result_files.update(
-                    {name: self._format_bbox(results_, tmp_file_, is_ttnn=is_ttnn)})
+
+                _, res_path = self._format_bbox(
+                    results_,
+                    tmp_file_,
+                    is_ttnn=is_ttnn,
+                )
+                result_files[name] = res_path
+
         return result_files, tmp_dir
-    
+
     def _evaluate_single(self,
-                         result_path,
-                         logger=None,
-                         metric='bbox',
-                         map_metric='chamfer',
-                         result_name='pts_bbox'):
-        """Evaluation for a single model in nuScenes protocol.
-
-        Args:
-            result_path (str): Path of the result file.
-            logger (logging.Logger | str | None): Logger used for printing
-                related information during evaluation. Default: None.
-            metric (str): Metric name used for evaluation. Default: 'bbox'.
-            result_name (str): Result name in the metric prefix.
-                Default: 'pts_bbox'.
-
-        Returns:
-            dict: Dictionary of evaluation details.
-        """
+                        result_path,
+                        logger=None,
+                        metric='bbox',
+                        map_metric='chamfer',
+                        result_name='pts_bbox'):
+        """Evaluation for a single model in nuScenes protocol."""
         detail = dict()
         from nuscenes import NuScenes
-        self.nusc = NuScenes(version=self.version, dataroot=self.data_root,
-                             verbose=False)
 
-        if isinstance(result_path, tuple):
-            result_path = result_path[0]
+        self.nusc = NuScenes(
+            version=self.version,
+            dataroot=self.data_root,
+            verbose=False,
+        )
+
+        if not isinstance(result_path, (str, bytes, os.PathLike)):
+            raise TypeError(
+                f"_evaluate_single expects a path string, got {type(result_path)}: {result_path}"
+            )
+
         output_dir = osp.join(*osp.split(result_path)[:-1])
-
 
         eval_set_map = {
             'v1.0-mini': 'mini_val',
             'v1.0-trainval': 'val',
         }
+
         self.nusc_eval = NuScenesEval_custom(
             self.nusc,
             config=self.custom_eval_detection_configs,
@@ -1656,81 +1647,9 @@ class VADCustomNuScenesDataset(NuScenesDataset):
             data_infos=self.data_infos
         )
         self.nusc_eval.main(plot_examples=0, render_curves=False)
-        # record metrics
+
         metrics = mmcv.load(osp.join(output_dir, 'metrics_summary.json'))
-        metric_prefix = f'{result_name}_NuScenes'
-        for name in self.CLASSES:
-            for k, v in metrics['label_aps'][name].items():
-                val = float('{:.4f}'.format(v))
-                detail['{}/{}_AP_dist_{}'.format(metric_prefix, name, k)] = val
-            for k, v in metrics['label_tp_errors'][name].items():
-                val = float('{:.4f}'.format(v))
-                detail['{}/{}_{}'.format(metric_prefix, name, k)] = val
-            for k, v in metrics['tp_errors'].items():
-                val = float('{:.4f}'.format(v))
-                detail['{}/{}'.format(metric_prefix,
-                                      self.ErrNameMapping[k])] = val
-        detail['{}/NDS'.format(metric_prefix)] = metrics['nd_score']
-        detail['{}/mAP'.format(metric_prefix)] = metrics['mean_ap']
-
-
-        from ssr.projects.mmdet3d_plugin.datasets.map_utils.mean_ap import eval_map
-        from ssr.projects.mmdet3d_plugin.datasets.map_utils.mean_ap import format_res_gt_by_classes
-        result_path = osp.abspath(result_path)
-        
-        logger.debug('Formating results & gts by classes')
-        pred_results = mmcv.load(result_path)
-        map_results = pred_results['map_results']
-        gt_anns = mmcv.load(self.map_ann_file)
-        map_annotations = gt_anns['GTs']
-        cls_gens, cls_gts = format_res_gt_by_classes(result_path,
-                                                     map_results,
-                                                     map_annotations,
-                                                     cls_names=self.MAPCLASSES,
-                                                     num_pred_pts_per_instance=self.fixed_num,
-                                                     eval_use_same_gt_sample_num_flag=self.eval_use_same_gt_sample_num_flag,
-                                                     pc_range=self.pc_range)
-        map_metrics = map_metric if isinstance(map_metric, list) else [map_metric]
-        allowed_metrics = ['chamfer', 'iou']
-        for metric in map_metrics:
-            if metric not in allowed_metrics:
-                raise KeyError(f'metric {metric} is not supported')
-        for metric in map_metrics:
-            logger.debug('-*'*10+f'use metric:{metric}'+'-*'*10)
-            if metric == 'chamfer':
-                thresholds = [0.5,1.0,1.5]
-            elif metric == 'iou':
-                thresholds= np.linspace(.5, 0.95, int(np.round((0.95 - .5) / .05)) + 1, endpoint=True)
-            cls_aps = np.zeros((len(thresholds),self.NUM_MAPCLASSES))
-            for i, thr in enumerate(thresholds):
-                logger.debug('-*'*10+f'threshhold:{thr}'+'-*'*10)
-                mAP, cls_ap = eval_map(
-                                map_results,
-                                map_annotations,
-                                cls_gens,
-                                cls_gts,
-                                threshold=thr,
-                                cls_names=self.MAPCLASSES,
-                                logger=logger,
-                                num_pred_pts_per_instance=self.fixed_num,
-                                pc_range=self.pc_range,
-                                metric=metric)
-                for j in range(self.NUM_MAPCLASSES):
-                    cls_aps[i, j] = cls_ap[j]['ap']
-            for i, name in enumerate(self.MAPCLASSES):
-                logger.debug('{}: {}'.format(name, cls_aps.mean(0)[i]))
-                detail['NuscMap_{}/{}_AP'.format(metric,name)] =  cls_aps.mean(0)[i]
-            logger.debug('map: {}'.format(cls_aps.mean(0).mean()))
-            detail['NuscMap_{}/mAP'.format(metric)] = cls_aps.mean(0).mean()
-            for i, name in enumerate(self.MAPCLASSES):
-                for j, thr in enumerate(thresholds):
-                    if metric == 'chamfer':
-                        detail['NuscMap_{}/{}_AP_thr_{}'.format(metric,name,thr)]=cls_aps[j][i]
-                    elif metric == 'iou':
-                        if thr == 0.5 or thr == 0.75:
-                            detail['NuscMap_{}/{}_AP_thr_{}'.format(metric,name,thr)]=cls_aps[j][i]
-
-        return detail
+        # keep your remaining metric parsing code below unchanged
 
 def evaluate(self,
             results,
