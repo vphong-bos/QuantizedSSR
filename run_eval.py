@@ -5,6 +5,8 @@
 # ---------------------------------------------
 import os
 import sys
+import time
+import os.path as osp
 
 py_deps = os.environ.get("PY_DEPS_DIR")
 if py_deps:
@@ -170,6 +172,19 @@ def main():
     fp32_results = None
     quant_results = None
 
+    kwargs = {}
+    kwargs['jsonfile_prefix'] = osp.join('test', args.config.split(
+        '/')[-1].split('.')[-2], time.ctime().replace(' ', '_').replace(':', '_'))
+
+    eval_kwargs = cfg.get('evaluation', {}).copy()
+    for key in [
+        'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
+        'rule'
+    ]:
+        eval_kwargs.pop(key, None)
+    eval_kwargs.update(dict(metric=args.eval, **kwargs))
+
+
     if args.fp32_weights:
         print("Loading FP32 model...")
         fp32_model, _ = load_default_model(
@@ -196,7 +211,7 @@ def main():
 
         if rank == 0:
             print("======================================================")
-            print(dataset.evaluate(fp32_results, metric=args.eval))
+            print(dataset.evaluate(fp32_results, **eval_kwargs))
 
     if args.quant_weights:
         quant_obj = load_quantized_model(
@@ -215,7 +230,7 @@ def main():
 
         if rank == 0:
             print("======================================================")
-            print(dataset.evaluate(quant_results, metric=args.eval))
+            print(dataset.evaluate(quant_results, **eval_kwargs))
 
     if rank == 0 and fp32_results is not None and quant_results is not None:
         pcc, num_values = compute_pcc(fp32_results, quant_results)
