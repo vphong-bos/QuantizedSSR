@@ -139,6 +139,36 @@ def get_onnx_graph_optimization_level(level):
 
     return level
 
+def exclude_layers(sim):
+    exclude_keywords = [
+        "embedding",
+        "positional_encoding",
+        "level_embeds",
+        "cams_embeds",
+        "reference_points",
+        "map_reference_points",
+        "code_weights",
+        "norm",
+        "attention_weights"
+    ]
+
+    for name, module in sim.model.named_modules():
+        if hasattr(module, 'param_quantizers'):
+            for pname, pq in module.param_quantizers.items():
+                full_name = f"{name}.{pname}" if name else pname
+                if any(k in full_name for k in exclude_keywords):
+                    if pq is not None:
+                        pq.enabled = False
+                        print(f"[EXCLUDE PARAM] {full_name}")
+
+    for name, module in sim.model.named_modules():
+        if hasattr(module, 'output_quantizers'):
+            if any(k in name for k in exclude_keywords):
+                for q in module.output_quantizers:
+                    if q is not None:
+                        q.enabled = False
+                        print(f"[EXCLUDE ACT] {name}")
+
 def create_quant_sim(
     model: AimetTraceWrapper,
     device: str,
@@ -165,20 +195,18 @@ def create_quant_sim(
         in_place=False,
     )
 
-    import fnmatch
+    exclude_layers(sim)
 
-    def get_modules_to_ignore(model, patterns):
-        modules = []
-        for name, module in model.named_modules():
-            for pattern in patterns:
-                if fnmatch.fnmatch(name, pattern):
-                    modules.append(module)
-                    break
-        return modules  
-
-    sim.exclude_layers_from_quantization(get_modules_to_ignore(model.model, modules_to_ignore))
+    for name, module in sim.model.named_modules():
+        if "img_backbone.layer" in name and name.endswith(".relu"):
+            if hasattr(module, "output_quantizers"):
+                for q in module.output_quantizers:
+                    if q is not None:
+                        q.enabled = False
 
     return sim
+
+
 
 def load_quantized_model(
     quant_weights,

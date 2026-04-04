@@ -15,105 +15,7 @@
   "params": {
     "bias": {
       "is_quantized": "False"
-    },
-    "excluded": [
-      "pts_bbox_head.code_weights",
-      "pts_bbox_head.map_code_weights",
-
-      "pts_bbox_head.positional_encoding.row_embed.weight",
-      "pts_bbox_head.positional_encoding.col_embed.weight",
-      "pts_bbox_head.transformer.level_embeds",
-      "pts_bbox_head.transformer.cams_embeds",
-
-      "pts_bbox_head.transformer.reference_points.weight",
-      "pts_bbox_head.transformer.reference_points.bias",
-      "pts_bbox_head.transformer.map_reference_points.weight",
-      "pts_bbox_head.transformer.map_reference_points.bias",
-
-      "pts_bbox_head.bev_embedding.weight",
-      "pts_bbox_head.query_embedding.weight",
-      "pts_bbox_head.map_instance_embedding.weight",
-      "pts_bbox_head.map_pts_embedding.weight",
-      "pts_bbox_head.ego_query.weight",
-      "pts_bbox_head.navi_embedding.weight",
-      "pts_bbox_head.way_point.weight",
-
-      "pts_bbox_head.transformer.encoder.layers.0.norms.0.weight",
-      "pts_bbox_head.transformer.encoder.layers.0.norms.0.bias",
-      "pts_bbox_head.transformer.encoder.layers.0.norms.1.weight",
-      "pts_bbox_head.transformer.encoder.layers.0.norms.1.bias",
-      "pts_bbox_head.transformer.encoder.layers.0.norms.2.weight",
-      "pts_bbox_head.transformer.encoder.layers.0.norms.2.bias",
-
-      "pts_bbox_head.transformer.encoder.layers.1.norms.0.weight",
-      "pts_bbox_head.transformer.encoder.layers.1.norms.0.bias",
-      "pts_bbox_head.transformer.encoder.layers.1.norms.1.weight",
-      "pts_bbox_head.transformer.encoder.layers.1.norms.1.bias",
-      "pts_bbox_head.transformer.encoder.layers.1.norms.2.weight",
-      "pts_bbox_head.transformer.encoder.layers.1.norms.2.bias",
-
-      "pts_bbox_head.transformer.encoder.layers.2.norms.0.weight",
-      "pts_bbox_head.transformer.encoder.layers.2.norms.0.bias",
-      "pts_bbox_head.transformer.encoder.layers.2.norms.1.weight",
-      "pts_bbox_head.transformer.encoder.layers.2.norms.1.bias",
-      "pts_bbox_head.transformer.encoder.layers.2.norms.2.weight",
-      "pts_bbox_head.transformer.encoder.layers.2.norms.2.bias",
-
-      "pts_bbox_head.transformer.can_bus_mlp.norm.weight",
-      "pts_bbox_head.transformer.can_bus_mlp.norm.bias",
-
-      "pts_bbox_head.cls_branches.0.1.weight",
-      "pts_bbox_head.cls_branches.0.1.bias",
-      "pts_bbox_head.cls_branches.0.4.weight",
-      "pts_bbox_head.cls_branches.0.4.bias",
-
-      "pts_bbox_head.traj_cls_branches.0.1.weight",
-      "pts_bbox_head.traj_cls_branches.0.1.bias",
-      "pts_bbox_head.traj_cls_branches.0.4.weight",
-      "pts_bbox_head.traj_cls_branches.0.4.bias",
-
-      "pts_bbox_head.map_cls_branches.0.1.weight",
-      "pts_bbox_head.map_cls_branches.0.1.bias",
-      "pts_bbox_head.map_cls_branches.0.4.weight",
-      "pts_bbox_head.map_cls_branches.0.4.bias",
-
-      "pts_bbox_head.tokenlearner.layer_norm.weight",
-      "pts_bbox_head.tokenlearner.layer_norm.bias",
-
-      "pts_bbox_head.latent_decoder.layers.0.norms.0.weight",
-      "pts_bbox_head.latent_decoder.layers.0.norms.0.bias",
-      "pts_bbox_head.latent_decoder.layers.0.norms.1.weight",
-      "pts_bbox_head.latent_decoder.layers.0.norms.1.bias",
-      "pts_bbox_head.latent_decoder.layers.1.norms.0.weight",
-      "pts_bbox_head.latent_decoder.layers.1.norms.0.bias",
-      "pts_bbox_head.latent_decoder.layers.1.norms.1.weight",
-      "pts_bbox_head.latent_decoder.layers.1.norms.1.bias",
-      "pts_bbox_head.latent_decoder.layers.2.norms.0.weight",
-      "pts_bbox_head.latent_decoder.layers.2.norms.0.bias",
-      "pts_bbox_head.latent_decoder.layers.2.norms.1.weight",
-      "pts_bbox_head.latent_decoder.layers.2.norms.1.bias",
-
-      "pts_bbox_head.way_decoder.layers.0.norms.0.weight",
-      "pts_bbox_head.way_decoder.layers.0.norms.0.bias",
-      "pts_bbox_head.way_decoder.layers.0.norms.1.weight",
-      "pts_bbox_head.way_decoder.layers.0.norms.1.bias",
-
-      "tokenfuser.norm.weight",
-      "tokenfuser.norm.bias",
-      "tokenfuser.norm1.weight",
-      "tokenfuser.norm1.bias",
-      "tokenfuser.norm2.weight",
-      "tokenfuser.norm2.bias",
-
-      "latent_world_model.layers.0.norms.0.weight",
-      "latent_world_model.layers.0.norms.0.bias",
-      "latent_world_model.layers.0.norms.1.weight",
-      "latent_world_model.layers.0.norms.1.bias",
-      "latent_world_model.layers.1.norms.0.weight",
-      "latent_world_model.layers.1.norms.0.bias",
-      "latent_world_model.layers.1.norms.1.weight",
-      "latent_world_model.layers.1.norms.1.bias"
-    ]
+    }
   },
   "op_type": {
     "Conv": {
@@ -157,41 +59,6 @@
       "is_output_quantized": "False"
     }
   },
-  "supergroup_pass_list": [
-    "MatmulAdd"
-  ],
-  "supergroups": [
-    {
-      "op_list": [
-        "Conv",
-        "Relu"
-      ]
-    },
-    {
-      "op_list": [
-        "Conv",
-        "Clip"
-      ]
-    },
-    {
-      "op_list": [
-        "ConvTranspose",
-        "Relu"
-      ]
-    },
-    {
-      "op_list": [
-        "Add",
-        "Relu"
-      ]
-    },
-    {
-      "op_list": [
-        "Gemm",
-        "Relu"
-      ]
-    }
-  ],
   "model_input": {
     "is_input_quantized": "True"
   },
