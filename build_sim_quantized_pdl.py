@@ -427,6 +427,17 @@ def main(args):
     #     # "pts_bbox_head.way_point.weight",
     # ]
 
+    def inspect_spatial_cross_attention_modules(model):
+        for name, module in model.named_modules():
+            if module.__class__.__name__ == "SpatialCrossAttention":
+                print(f"\n{name}")
+                print("  debug_save:", getattr(module, "debug_save", None))
+                print("  _video_writers keys:", list(getattr(module, "_video_writers", {}).keys()) if isinstance(getattr(module, "_video_writers", None), dict) else type(getattr(module, "_video_writers", None)))
+                print("  _combined_video_writers keys:", list(getattr(module, "_combined_video_writers", {}).keys()) if isinstance(getattr(module, "_combined_video_writers", None), dict) else type(getattr(module, "_combined_video_writers", None)))
+                print("  _integrated_video_writers keys:", list(getattr(module, "_integrated_video_writers", {}).keys()) if isinstance(getattr(module, "_integrated_video_writers", None), dict) else type(getattr(module, "_integrated_video_writers", None)))
+
+    inspect_spatial_cross_attention_modules(sim.model)
+
     def get_skip_layer_names(model):
         target_classes = {
             "SpatialCrossAttention",
@@ -441,6 +452,10 @@ def main(args):
         return skip_layer_names
 
     skip_layer_names = get_skip_layer_names(wrapped_model)
+
+    print("Skip layers:")
+    for n in skip_layer_names:
+        print(" ", n)
 
     # skip_layer_names = []
 
