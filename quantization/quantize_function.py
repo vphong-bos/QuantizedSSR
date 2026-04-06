@@ -36,20 +36,10 @@ def unwrap_datacontainer(x):
         x = x.data
     return x
 
-def unwrap_singleton_list(x):
+def unwrap_img_tensor(x):
+    x = unwrap_datacontainer(x)
     while isinstance(x, list) and len(x) == 1:
         x = x[0]
-    return x
-
-def normalize_img_metas(x):
-    x = unwrap_datacontainer(x)
-
-    while isinstance(x, list) and len(x) == 1 and isinstance(x[0], list):
-        x = x[0]
-
-    if isinstance(x, dict):
-        x = [x]
-
     return x
 
 class AimetTraceWrapper(torch.nn.Module):
@@ -59,6 +49,10 @@ class AimetTraceWrapper(torch.nn.Module):
         self.runtime_batch = None
 
     def set_batch(self, batch):
+        batch = dict(batch)
+        # keep img_metas nesting, only remove DataContainer
+        if "img_metas" in batch:
+            batch["img_metas"] = unwrap_datacontainer(batch["img_metas"])
         self.runtime_batch = batch
 
     def forward(self, img=None, **kwargs):
@@ -66,10 +60,7 @@ class AimetTraceWrapper(torch.nn.Module):
             return self.model(img=img, **kwargs)
 
         batch = dict(self.runtime_batch)
-
         batch["img"] = img
-        batch["img_metas"] = normalize_img_metas(batch["img_metas"])
-
         return self.model(return_loss=False, rescale=True, **batch)
     
 def aimet_forward_fn(model, inputs):
