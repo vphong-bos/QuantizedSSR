@@ -11,26 +11,34 @@ from aimet_torch.quantsim import QuantizationSimModel
 from quantization.registered_ops import QuantizedLinear
 from evaluation.eval_dataset import extract_data
 
+# class AimetTraceWrapper(torch.nn.Module):
+#     def __init__(self, model):
+#         super().__init__()
+#         self.model = model
+#         self.runtime_batch = None
+
+#     def set_batch(self, batch):
+#         self.runtime_batch = batch
+
+#     def forward(self, img=None, **kwargs):
+#         if "return_loss" in kwargs or "rescale" in kwargs or "img_metas" in kwargs:
+#             return self.model(img=img, **kwargs)
+
+#         batch = self.runtime_batch
+#         assert batch is not None
+#         return self.model.forward_quant(
+#             img=img,
+#             img_metas=batch["img_metas"],
+#         )
+
 class AimetTraceWrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
         self.model = model
-        self.runtime_batch = None
-
-    def set_batch(self, batch):
-        self.runtime_batch = batch
 
     def forward(self, img=None, **kwargs):
-        if "return_loss" in kwargs or "rescale" in kwargs or "img_metas" in kwargs:
-            return self.model(img=img, **kwargs)
+        return self.model(img=img, **kwargs)
 
-        batch = self.runtime_batch
-        assert batch is not None
-        return self.model.forward_quant(
-            img=img,
-            img_metas=batch["img_metas"],
-        )
-    
 def aimet_forward_fn(model, inputs):
     if isinstance(inputs, dict):
         img = inputs["img"]
@@ -74,44 +82,70 @@ def run_model_on_batch(model, batch, device):
 
     return model(img)
 
-@torch.no_grad()
 def calibration_forward_pass(model, forward_pass_args):
-    dataloader, device, max_batches, max_samples = forward_pass_args
+    data_loader, device, calib_batches, calib_max_samples = forward_pass_args
+
     model.eval()
+    seen = 0
 
-    seen_samples = 0
+    with torch.no_grad():
+        for batch_idx, data in enumerate(data_loader):
+            result = model(return_loss=False, rescale=True, **data)
 
-    total = len(dataloader)
-    if max_batches is not None and max_batches > 0:
-        total = min(total, max_batches)
+            # optional sample limit logic
+            img = data.get("img", None)
+            if isinstance(img, list):
+                batch_size = img[0].shape[0]
+            elif torch.is_tensor(img):
+                batch_size = img.shape[0]
+            else:
+                batch_size = 1
 
-    pbar = tqdm(total=total, desc="Calibration", dynamic_ncols=True)
+            seen += batch_size
 
-    for batch_idx, batch in enumerate(dataloader):
-        prepared = prepare_batch(batch, device)
-        model.set_batch(prepared)
+            if calib_batches is not None and (batch_idx + 1) >= calib_batches:
+                break
+            if calib_max_samples is not None and seen >= calib_max_samples:
+                break
 
-        img = prepared["img"]
-        if isinstance(img, list):
-            assert len(img) == 1, f"Unexpected img list length: {len(img)}"
-            img = img[0]
+# @torch.no_grad()
+# def calibration_forward_pass(model, forward_pass_args):
+#     dataloader, device, max_batches, max_samples = forward_pass_args
+#     model.eval()
 
-        _ = model(img)
+#     seen_samples = 0
 
-        current_bs = img.size(0) if torch.is_tensor(img) else 1
-        seen_samples += current_bs
+#     total = len(dataloader)
+#     if max_batches is not None and max_batches > 0:
+#         total = min(total, max_batches)
 
-        pbar.update(1)
-        pbar.set_postfix({
-            "samples": seen_samples
-        })
+#     pbar = tqdm(total=total, desc="Calibration", dynamic_ncols=True)
 
-        if max_batches is not None and max_batches > 0 and batch_idx + 1 >= max_batches:
-            break
-        if max_samples is not None and max_samples > 0 and seen_samples >= max_samples:
-            break
+#     for batch_idx, batch in enumerate(dataloader):
+#         prepared = prepare_batch(batch, device)
+#         model.set_batch(prepared)
 
-    pbar.close()
+#         img = prepared["img"]
+#         if isinstance(img, list):
+#             assert len(img) == 1, f"Unexpected img list length: {len(img)}"
+#             img = img[0]
+
+#         _ = model(img)
+
+#         current_bs = img.size(0) if torch.is_tensor(img) else 1
+#         seen_samples += current_bs
+
+#         pbar.update(1)
+#         pbar.set_postfix({
+#             "samples": seen_samples
+#         })
+
+#         if max_batches is not None and max_batches > 0 and batch_idx + 1 >= max_batches:
+#             break
+#         if max_samples is not None and max_samples > 0 and seen_samples >= max_samples:
+#             break
+
+#     pbar.close()
 
 def get_onnx_graph_optimization_level(level):
     """

@@ -369,7 +369,7 @@ def parse_args() -> argparse.Namespace:
         "--quant_format",
         type=str,
         default="qoperator",
-        choices=["qoperator"],
+        choices=["qoperator", "qdq"],
         help="Kept fixed to QOperator as requested.",
     )
     parser.add_argument(
