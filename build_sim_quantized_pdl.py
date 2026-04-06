@@ -427,69 +427,22 @@ def main(args):
     #     # "pts_bbox_head.way_point.weight",
     # ]
 
-    def should_skip(name: str) -> bool:
-        return (
-            # whole transformer stack
-            "pts_bbox_head.transformer" in name
-            or "transformer.encoder.layers" in name
-            or "attentions" in name
-            or "deformable_attention" in name
-            or "ffns" in name
-
-            # transformer-adjacent / geometric / positional
-            or "positional_encoding" in name
-            or "reference_points" in name
-            or "map_reference_points" in name
-            or "level_embeds" in name
-            or "cams_embeds" in name
-
-            # embeddings / learned queries
-            or "bev_embedding" in name
-            or "query_embedding" in name
-            or "map_instance_embedding" in name
-            or "map_pts_embedding" in name
-            or "ego_query" in name
-            or "navi_embedding" in name
-            or "way_point" in name
-            or "embedding" in name
-
-            # norms
-            or ".norm" in name
-            or ".norms." in name
-            or "layer_norm" in name
-
-            # fragile side branches
-            or "can_bus_mlp" in name
-            or "navi_se" in name
-            or "tokenlearner" in name
-            or "tokenfuser" in name
-            or "latent_decoder" in name
-            or "way_decoder" in name
-            or "latent_world_model" in name
-            or "action_mln" in name
-            or "pos_mln" in name
-
-            # optional: keep all planning / traj / map heads float for maximum safety
-            or "traj_branches" in name
-            or "traj_cls_branches" in name
-            or "map_cls_branches" in name
-            or "map_reg_branches" in name
-            or "ego_fut_decoder" in name
-        )
-
     def get_skip_layer_names(model):
-        skip_layer_names = []
+        target_classes = {
+            "SpatialCrossAttention",
+            "MSDeformableAttention3D",
+        }
 
+        skip_layer_names = []
         for name, module in model.named_modules():
-            if should_skip(name):
+            if module.__class__.__name__ in target_classes:
                 skip_layer_names.append(name)
 
-        skip_layer_names = list(dict.fromkeys(skip_layer_names))
         return skip_layer_names
 
-    # skip_layer_names = get_skip_layer_names(wrapped_model)
+    skip_layer_names = get_skip_layer_names(wrapped_model)
 
-    skip_layer_names = []
+    # skip_layer_names = []
 
     # skip_layer_names.extend([
     #     "model.pts_bbox_head.positional_encoding",
@@ -554,167 +507,9 @@ def main(args):
     calib_time = time.time() - calib_start
     print(f"Calibration finished in {calib_time:.2f} s")
 
-    # import cv2
-    # import pickle
-    # from collections.abc import Mapping, Sequence
-
-    # def find_objects_by_type(obj, target_type, max_depth=8):
-    #     visited = set()
-    #     hits = []
-
-    #     def walk(x, path, depth):
-    #         if depth > max_depth:
-    #             return
-
-    #         obj_id = id(x)
-    #         if obj_id in visited:
-    #             return
-    #         visited.add(obj_id)
-
-    #         try:
-    #             if isinstance(x, target_type):
-    #                 hits.append(path)
-    #                 return
-    #         except Exception:
-    #             pass
-
-    #         # dict-like
-    #         if isinstance(x, Mapping):
-    #             for k, v in x.items():
-    #                 walk(v, f"{path}[{k!r}]", depth + 1)
-    #             return
-
-    #         # list/tuple-like, but avoid strings/bytes
-    #         if isinstance(x, Sequence) and not isinstance(x, (str, bytes, bytearray)):
-    #             for i, v in enumerate(x):
-    #                 walk(v, f"{path}[{i}]", depth + 1)
-    #             return
-
-    #         # normal python object attributes
-    #         if hasattr(x, "__dict__"):
-    #             for name, v in vars(x).items():
-    #                 walk(v, f"{path}.{name}", depth + 1)
-
-    #     walk(obj, "root", 0)
-    #     return hits
-
-
-    # def find_non_picklable_paths(obj, max_depth=6):
-    #     visited = set()
-    #     bad = []
-
-    #     def walk(x, path, depth):
-    #         if depth > max_depth:
-    #             return
-
-    #         obj_id = id(x)
-    #         if obj_id in visited:
-    #             return
-    #         visited.add(obj_id)
-
-    #         # Try pickling this object itself
-    #         try:
-    #             pickle.dumps(x)
-    #         except Exception as e:
-    #             bad.append((path, type(x).__name__, repr(e)))
-
-    #         if isinstance(x, Mapping):
-    #             for k, v in x.items():
-    #                 walk(v, f"{path}[{k!r}]", depth + 1)
-    #             return
-
-    #         if isinstance(x, Sequence) and not isinstance(x, (str, bytes, bytearray)):
-    #             for i, v in enumerate(x):
-    #                 walk(v, f"{path}[{i}]", depth + 1)
-    #             return
-
-    #         if hasattr(x, "__dict__"):
-    #             for name, v in vars(x).items():
-    #                 walk(v, f"{path}.{name}", depth + 1)
-
-    #     walk(obj, "root", 0)
-    #     return bad
-
-    # vw_hits = find_objects_by_type(sim, cv2.VideoWriter, max_depth=10)
-    # print("VideoWriter hits:")
-    # for p in vw_hits:
-    #     print("  ", p)
-
-    # bad_hits = find_non_picklable_paths(sim, max_depth=5)
-    # print("\nNon-picklable hits:")
-    # for path, typ, err in bad_hits[:100]:
-    #     print(f"{path} :: {typ} :: {err}")
-
-    # def strip_video_writers(obj, visited=None):
-    #     if visited is None:
-    #         visited = set()
-
-    #     oid = id(obj)
-    #     if oid in visited:
-    #         return
-    #     visited.add(oid)
-
-    #     # FIX: all must be dicts
-    #     if hasattr(obj, "_video_writers"):
-    #         obj._video_writers = {}
-
-    #     if hasattr(obj, "_combined_video_writers"):
-    #         obj._combined_video_writers = {}
-
-    #     if hasattr(obj, "_integrated_video_writers"):
-    #         obj._integrated_video_writers = {}
-
-    #     # recurse
-    #     if hasattr(obj, "__dict__"):
-    #         for v in vars(obj).values():
-    #             strip_video_writers(v, visited)
-    #     elif isinstance(obj, dict):
-    #         for v in obj.values():
-    #             strip_video_writers(v, visited)
-    #     elif isinstance(obj, (list, tuple)):
-    #         for v in obj:
-    #             strip_video_writers(v, visited)
-
-    # strip_video_writers(sim)
-
-    def disable_spatial_attention_debug(module):
-        for m in module.modules():
-            if m.__class__.__name__ == "SpatialCrossAttention":
-                m.debug_save = False
-                try:
-                    m.close_debug_writers()
-                except Exception:
-                    pass
-                m._video_writers = {}
-                m._combined_video_writers = {}
-                m._integrated_video_writers = {}
-
-    # right before export
-    disable_spatial_attention_debug(sim.model)
-
-    # save_dir = args.save_quant_checkpoint
-    # os.makedirs(save_dir, exist_ok=True)
-
-    # # unwrap if needed
-    # base_model = sim.model
-    # if hasattr(base_model, "model"):
-    #     base_model = base_model.model
-
-    # # save weights
-    # torch.save(base_model.state_dict(), os.path.join(save_dir, "model_state_dict.pth"))
-
-    # # # save AIMET encodings for deployment / reload
-    # # sim.export(
-    # #     path=save_dir,
-    # #     filename_prefix="quantized_ssr",
-    # #     dummy_input=dummy_input,
-    # # )
-
-    # print(f"Saved model weights and encodings to {save_dir}")
-
-    # if args.save_quant_checkpoint is not None:
-    #     quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
-    #     print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
+    if args.save_quant_checkpoint is not None:
+        quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
+        print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
 
     if not args.no_export:
         export_dir = osp.join(args.work_dir, args.export_prefix)
