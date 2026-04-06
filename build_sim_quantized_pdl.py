@@ -389,6 +389,14 @@ def main(args):
     if not torch.is_tensor(real_img):
         raise TypeError(f"Expected tensor, got {type(real_img)}")
 
+    # Ensure batch dimension exists
+    if real_img.ndim == 4:   # [6, 3, H, W]
+        real_img = real_img.unsqueeze(0)  # -> [1, 6, 3, H, W]
+    elif real_img.ndim != 5:
+        raise ValueError(f"Unexpected real_img shape: {real_img.shape}")
+
+    print("trace real_img shape:", real_img.shape)
+
     dummy_input = torch.zeros_like(real_img)
 
     maybe_run_cle(wrapped_model, dummy_input, args.enable_cle)

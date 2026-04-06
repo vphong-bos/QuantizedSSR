@@ -43,18 +43,36 @@ class AimetTraceWrapper(torch.nn.Module):
         self.runtime_batch = None
 
     def set_batch(self, batch):
-        # batch must already be in the exact extract_data() format
-        self.runtime_batch = batch
+        self.runtime_batch = batch  # batch already comes from extract_data()
 
     def forward(self, img=None, **kwargs):
-        # Real eval/calibration path
+        # normal eval / calibration path
         if kwargs:
-            print(1)
             return self.model(img=img, **kwargs)
 
-        # Dummy-input path for AIMET graph build
+        # AIMET tracing path
         batch = dict(self.runtime_batch)
-        batch["img"] = [img]   # keep exact extracted format
+
+        if not torch.is_tensor(img):
+            raise TypeError(f"Expected tensor img, got {type(img)}")
+
+        # SSR expects batch-first camera tensor
+        if img.ndim == 4:   # [6, 3, H, W]
+            img = img.unsqueeze(0)
+        elif img.ndim != 5:
+            raise ValueError(f"Unexpected traced img shape: {img.shape}")
+
+        # keep exact working eval schema: img is [tensor]
+        batch["img"] = [img]
+
+        # useful sanity check
+        metas = batch["img_metas"]
+        assert isinstance(metas, list) and isinstance(metas[0], list)
+        assert len(metas[0][0]["lidar2img"]) == img.shape[1], (
+            f"num_cam mismatch: lidar2img has {len(metas[0][0]['lidar2img'])}, "
+            f"img has shape {img.shape}"
+        )
+
         return self.model(return_loss=False, rescale=True, **batch)
     
 def aimet_forward_fn(model, inputs):
