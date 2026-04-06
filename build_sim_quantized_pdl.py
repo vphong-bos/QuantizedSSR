@@ -654,13 +654,17 @@ def main(args):
             return
         visited.add(oid)
 
+        # FIX: all must be dicts
         if hasattr(obj, "_video_writers"):
             obj._video_writers = {}
-        if hasattr(obj, "_combined_video_writers"):
-            obj._combined_video_writers = []
-        if hasattr(obj, "_integrated_video_writers"):
-            obj._integrated_video_writers = []
 
+        if hasattr(obj, "_combined_video_writers"):
+            obj._combined_video_writers = {}
+
+        if hasattr(obj, "_integrated_video_writers"):
+            obj._integrated_video_writers = {}
+
+        # recurse
         if hasattr(obj, "__dict__"):
             for v in vars(obj).values():
                 strip_video_writers(v, visited)
