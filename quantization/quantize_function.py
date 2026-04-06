@@ -49,6 +49,24 @@ class AimetTraceWrapper(torch.nn.Module):
         batch = self.runtime_batch
         assert batch is not None, "runtime_batch must be set before tensor-only forward"
 
+        print("img type:", type(batch["img"]))
+        print("img shape:", batch["img"].shape if torch.is_tensor(batch["img"]) else None)
+
+        print("type(img_metas):", type(batch["img_metas"]))
+        print("len(img_metas):", len(batch["img_metas"]) if isinstance(batch["img_metas"], list) else None)
+
+        import numpy as np
+
+        if isinstance(batch["img_metas"], list) and len(batch["img_metas"]) > 0:
+            print("type(img_metas[0]):", type(batch["img_metas"][0]))
+            if isinstance(batch["img_metas"][0], dict) and "lidar2img" in batch["img_metas"][0]:
+                lidar2img = batch["img_metas"][0]["lidar2img"]
+                print("lidar2img type:", type(lidar2img))
+                try:
+                    print("lidar2img shape:", np.array(lidar2img).shape)
+                except Exception:
+                    pass
+
         forward_kwargs = {}
         for k, v in batch.items():
             if k != "img":
