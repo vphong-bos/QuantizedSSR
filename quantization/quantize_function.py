@@ -43,18 +43,18 @@ class AimetTraceWrapper(torch.nn.Module):
         self.runtime_batch = None
 
     def set_batch(self, batch):
-        norm = {}
-        for k, v in batch.items():
-            norm[k] = unwrap_datacontainer(v)
-        self.runtime_batch = norm
+        # batch must already be in the exact extract_data() format
+        self.runtime_batch = batch
 
     def forward(self, img=None, **kwargs):
+        # Real eval/calibration path
         if kwargs:
+            print(1)
             return self.model(img=img, **kwargs)
 
+        # Dummy-input path for AIMET graph build
         batch = dict(self.runtime_batch)
-        batch["img"] = [img]
-        print(batch)
+        batch["img"] = [img]   # keep exact extracted format
         return self.model(return_loss=False, rescale=True, **batch)
     
 def aimet_forward_fn(model, inputs):
