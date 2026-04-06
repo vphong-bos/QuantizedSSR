@@ -377,16 +377,19 @@ class SSR(nn.Module):
             ego_fut_pred = ego_fut_preds[ego_fut_cmd_idx]
             ego_fut_pred = ego_fut_pred.cumsum(dim=-2)
             ego_fut_trajs = ego_fut_trajs.cumsum(dim=-2)
-            
-            metric_dict_planner_stp3 = self.compute_planner_metric_stp3(
-                pred_ego_fut_trajs = ego_fut_pred[None],
-                gt_ego_fut_trajs = ego_fut_trajs[None],
-                gt_agent_boxes = gt_bbox,
-                gt_agent_feats = gt_attr_label.unsqueeze(0),
-                gt_map_boxes = gt_map_bbox,
-                gt_map_labels = gt_map_label,
-                fut_valid_flag = fut_valid_flag
-            )
+
+            metric_dict_planner_stp3 = {}
+
+            if not torch.jit.is_tracing():
+                metric_dict_planner_stp3 = self.compute_planner_metric_stp3(
+                    pred_ego_fut_trajs = ego_fut_pred[None],
+                    gt_ego_fut_trajs = ego_fut_trajs[None],
+                    gt_agent_boxes = gt_bbox,
+                    gt_agent_feats = gt_attr_label.unsqueeze(0),
+                    gt_map_boxes = gt_map_bbox,
+                    gt_map_labels = gt_map_label,
+                    fut_valid_flag = fut_valid_flag
+                )
             metric_dict.update(metric_dict_planner_stp3)
 
         return outs['bev_embed'], bbox_results, metric_dict
