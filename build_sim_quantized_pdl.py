@@ -389,6 +389,11 @@ def main(args):
         assert len(real_img) == 1
         real_img = real_img[0]
 
+    print("type(real_img):", type(real_img))
+    if isinstance(real_img, list):
+        print("len(real_img):", len(real_img))
+        print("type(real_img[0]):", type(real_img[0]))
+
     dummy_input = torch.zeros_like(real_img)
 
     maybe_run_cle(wrapped_model, dummy_input, args.enable_cle)
