@@ -480,31 +480,31 @@ def main(args):
 
     skip_layer_names = []
 
-    skip_layer_names.extend([
-        "model.pts_bbox_head.positional_encoding",
-        "model.pts_bbox_head.bev_embedding",
-        "model.pts_bbox_head.query_embedding",
-        "model.pts_bbox_head.map_instance_embedding",
-        "model.pts_bbox_head.map_pts_embedding",
-        "model.pts_bbox_head.ego_query",
-        "model.pts_bbox_head.navi_embedding",
+    # skip_layer_names.extend([
+    #     "model.pts_bbox_head.positional_encoding",
+    #     "model.pts_bbox_head.bev_embedding",
+    #     "model.pts_bbox_head.query_embedding",
+    #     "model.pts_bbox_head.map_instance_embedding",
+    #     "model.pts_bbox_head.map_pts_embedding",
+    #     "model.pts_bbox_head.ego_query",
+    #     "model.pts_bbox_head.navi_embedding",
 
-        "model.pts_bbox_head.transformer.reference_points",
-        "model.pts_bbox_head.transformer.map_reference_points",
+    #     "model.pts_bbox_head.transformer.reference_points",
+    #     "model.pts_bbox_head.transformer.map_reference_points",
 
-        "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.sampling_offsets",
-        "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.attention_weights",
-        "model.pts_bbox_head.transformer.encoder.layers.0.attentions.1.deformable_attention.sampling_offsets",
-        "model.pts_bbox_head.transformer.encoder.layers.0.attentions.1.deformable_attention.attention_weights",
-        "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.sampling_offsets",
-        "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.attention_weights",
-        "model.pts_bbox_head.transformer.encoder.layers.1.attentions.1.deformable_attention.sampling_offsets",
-        "model.pts_bbox_head.transformer.encoder.layers.1.attentions.1.deformable_attention.attention_weights",
-        "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.sampling_offsets",
-        "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.attention_weights",
-        "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention.sampling_offsets",
-        "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention.attention_weights",
-    ])
+    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.sampling_offsets",
+    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.attention_weights",
+    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.1.deformable_attention.sampling_offsets",
+    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.1.deformable_attention.attention_weights",
+    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.sampling_offsets",
+    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.attention_weights",
+    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.1.deformable_attention.sampling_offsets",
+    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.1.deformable_attention.attention_weights",
+    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.sampling_offsets",
+    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.attention_weights",
+    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention.sampling_offsets",
+    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention.attention_weights",
+    # ])
 
     print("Creating AIMET QuantizationSimModel...")
     sim = create_quant_sim(
