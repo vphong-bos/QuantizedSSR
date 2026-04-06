@@ -645,60 +645,57 @@ def main(args):
     # for path, typ, err in bad_hits[:100]:
     #     print(f"{path} :: {typ} :: {err}")
 
-    def remove_video_writers(obj, visited=None):
+    def strip_video_writers(obj, visited=None):
         if visited is None:
             visited = set()
 
-        obj_id = id(obj)
-        if obj_id in visited:
+        oid = id(obj)
+        if oid in visited:
             return
-        visited.add(obj_id)
+        visited.add(oid)
 
-        # Remove known attributes
-        for attr in ["_video_writers", "_combined_video_writers", "_integrated_video_writers"]:
-            if hasattr(obj, attr):
-                setattr(obj, attr, None)
+        if hasattr(obj, "_video_writers"):
+            obj._video_writers = {}
+        if hasattr(obj, "_combined_video_writers"):
+            obj._combined_video_writers = []
+        if hasattr(obj, "_integrated_video_writers"):
+            obj._integrated_video_writers = []
 
-        # Traverse children
         if hasattr(obj, "__dict__"):
             for v in vars(obj).values():
-                remove_video_writers(v, visited)
-
-        elif isinstance(obj, (list, tuple)):
-            for v in obj:
-                remove_video_writers(v, visited)
-
+                strip_video_writers(v, visited)
         elif isinstance(obj, dict):
             for v in obj.values():
-                remove_video_writers(v, visited)
+                strip_video_writers(v, visited)
+        elif isinstance(obj, (list, tuple)):
+            for v in obj:
+                strip_video_writers(v, visited)
 
+    strip_video_writers(sim)
 
-    # Apply to full sim (important!)
-    remove_video_writers(sim)
+    # save_dir = args.save_quant_checkpoint
+    # os.makedirs(save_dir, exist_ok=True)
 
-    save_dir = args.save_quant_checkpoint
-    os.makedirs(save_dir, exist_ok=True)
+    # # unwrap if needed
+    # base_model = sim.model
+    # if hasattr(base_model, "model"):
+    #     base_model = base_model.model
 
-    # unwrap if needed
-    base_model = sim.model
-    if hasattr(base_model, "model"):
-        base_model = base_model.model
+    # # save weights
+    # torch.save(base_model.state_dict(), os.path.join(save_dir, "model_state_dict.pth"))
 
-    # save weights
-    torch.save(base_model.state_dict(), os.path.join(save_dir, "model_state_dict.pth"))
+    # # # save AIMET encodings for deployment / reload
+    # # sim.export(
+    # #     path=save_dir,
+    # #     filename_prefix="quantized_ssr",
+    # #     dummy_input=dummy_input,
+    # # )
 
-    # # save AIMET encodings for deployment / reload
-    # sim.export(
-    #     path=save_dir,
-    #     filename_prefix="quantized_ssr",
-    #     dummy_input=dummy_input,
-    # )
+    # print(f"Saved model weights and encodings to {save_dir}")
 
-    print(f"Saved model weights and encodings to {save_dir}")
-
-    # if args.save_quant_checkpoint is not None:
-    #     quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
-    #     print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
+    if args.save_quant_checkpoint is not None:
+        quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
+        print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
 
     if not args.no_export:
         export_dir = osp.join(args.work_dir, args.export_prefix)
