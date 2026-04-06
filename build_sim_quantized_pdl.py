@@ -554,6 +554,28 @@ def main(args):
     calib_time = time.time() - calib_start
     print(f"Calibration finished in {calib_time:.2f} s")
 
+    def strip_non_picklable_runtime_state(model):
+        target = model.model if hasattr(model, "model") else model
+
+        for attr in [
+            "planning_metric",
+        ]:
+            if hasattr(target, attr):
+                setattr(target, attr, None)
+
+    strip_non_picklable_runtime_state(sim.model)
+
+    # remove non-picklable runtime state before AIMET checkpoint save
+    base_model = sim.model
+
+    if hasattr(base_model, "model"):   # if wrapped
+        base_model = base_model.model
+
+    if hasattr(base_model, "planning_metric"):
+        base_model.planning_metric = None
+
+    quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
+
     if args.save_quant_checkpoint is not None:
         quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
         print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
