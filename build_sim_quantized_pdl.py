@@ -24,6 +24,9 @@ Notes:
   already has helper functions equivalent to the segmentation example.
 """
 
+import sys
+sys.setrecursionlimit(20000)
+
 import argparse
 import copy
 import os
