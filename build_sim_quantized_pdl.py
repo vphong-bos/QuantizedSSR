@@ -676,8 +676,6 @@ def main(args):
     # Apply to full sim (important!)
     remove_video_writers(sim)
 
-    import torch
-
     save_dir = args.save_quant_checkpoint
     os.makedirs(save_dir, exist_ok=True)
 
