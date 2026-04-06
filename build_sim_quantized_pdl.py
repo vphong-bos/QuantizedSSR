@@ -645,36 +645,36 @@ def main(args):
     # for path, typ, err in bad_hits[:100]:
     #     print(f"{path} :: {typ} :: {err}")
 
-    # def remove_video_writers(obj, visited=None):
-    #     if visited is None:
-    #         visited = set()
+    def remove_video_writers(obj, visited=None):
+        if visited is None:
+            visited = set()
 
-    #     obj_id = id(obj)
-    #     if obj_id in visited:
-    #         return
-    #     visited.add(obj_id)
+        obj_id = id(obj)
+        if obj_id in visited:
+            return
+        visited.add(obj_id)
 
-    #     # Remove known attributes
-    #     for attr in ["_video_writers", "_combined_video_writers", "_integrated_video_writers"]:
-    #         if hasattr(obj, attr):
-    #             setattr(obj, attr, None)
+        # Remove known attributes
+        for attr in ["_video_writers", "_combined_video_writers", "_integrated_video_writers"]:
+            if hasattr(obj, attr):
+                setattr(obj, attr, None)
 
-    #     # Traverse children
-    #     if hasattr(obj, "__dict__"):
-    #         for v in vars(obj).values():
-    #             remove_video_writers(v, visited)
+        # Traverse children
+        if hasattr(obj, "__dict__"):
+            for v in vars(obj).values():
+                remove_video_writers(v, visited)
 
-    #     elif isinstance(obj, (list, tuple)):
-    #         for v in obj:
-    #             remove_video_writers(v, visited)
+        elif isinstance(obj, (list, tuple)):
+            for v in obj:
+                remove_video_writers(v, visited)
 
-    #     elif isinstance(obj, dict):
-    #         for v in obj.values():
-    #             remove_video_writers(v, visited)
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                remove_video_writers(v, visited)
 
 
-    # # Apply to full sim (important!)
-    # remove_video_writers(sim)
+    # Apply to full sim (important!)
+    remove_video_writers(sim)
 
     save_dir = args.save_quant_checkpoint
     os.makedirs(save_dir, exist_ok=True)
