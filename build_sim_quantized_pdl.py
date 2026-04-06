@@ -385,14 +385,20 @@ def main(args):
     wrapped_model.set_batch(prepared_batch)
 
     real_img = prepared_batch["img"]
-    if isinstance(real_img, list):
-        assert len(real_img) == 1
+
+    # unwrap DataContainer(s)
+    while hasattr(real_img, "data"):
+        real_img = real_img.data
+
+    # unwrap singleton list(s)
+    while isinstance(real_img, list) and len(real_img) == 1:
         real_img = real_img[0]
 
-    print("type(real_img):", type(real_img))
-    if isinstance(real_img, list):
-        print("len(real_img):", len(real_img))
-        print("type(real_img[0]):", type(real_img[0]))
+    if not torch.is_tensor(real_img):
+        raise TypeError(f"Expected tensor for real_img, got {type(real_img)}")
+
+    print("final real_img type:", type(real_img))
+    print("final real_img shape:", real_img.shape)
 
     dummy_input = torch.zeros_like(real_img)
 
