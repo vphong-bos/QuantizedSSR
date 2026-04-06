@@ -24,9 +24,6 @@ Notes:
   already has helper functions equivalent to the segmentation example.
 """
 
-import sys
-sys.setrecursionlimit(20000)
-
 import argparse
 import copy
 import os
@@ -679,9 +676,31 @@ def main(args):
     # Apply to full sim (important!)
     remove_video_writers(sim)
 
-    if args.save_quant_checkpoint is not None:
-        quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
-        print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
+    import torch
+
+    save_dir = args.save_quant_checkpoint
+    os.makedirs(save_dir, exist_ok=True)
+
+    # unwrap if needed
+    base_model = sim.model
+    if hasattr(base_model, "model"):
+        base_model = base_model.model
+
+    # save weights
+    torch.save(base_model.state_dict(), os.path.join(save_dir, "model_state_dict.pth"))
+
+    # # save AIMET encodings for deployment / reload
+    # sim.export(
+    #     path=save_dir,
+    #     filename_prefix="quantized_ssr",
+    #     dummy_input=dummy_input,
+    # )
+
+    print(f"Saved model weights and encodings to {save_dir}")
+
+    # if args.save_quant_checkpoint is not None:
+    #     quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
+    #     print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
 
     if not args.no_export:
         export_dir = osp.join(args.work_dir, args.export_prefix)
