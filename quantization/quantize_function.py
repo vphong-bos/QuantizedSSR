@@ -55,17 +55,7 @@ class AimetTraceWrapper(torch.nn.Module):
         print("type(img_metas):", type(batch["img_metas"]))
         print("len(img_metas):", len(batch["img_metas"]) if isinstance(batch["img_metas"], list) else None)
 
-        import numpy as np
-
-        if isinstance(batch["img_metas"], list) and len(batch["img_metas"]) > 0:
-            print("type(img_metas[0]):", type(batch["img_metas"][0]))
-            if isinstance(batch["img_metas"][0], dict) and "lidar2img" in batch["img_metas"][0]:
-                lidar2img = batch["img_metas"][0]["lidar2img"]
-                print("lidar2img type:", type(lidar2img))
-                try:
-                    print("lidar2img shape:", np.array(lidar2img).shape)
-                except Exception:
-                    pass
+        print(batch)
 
         forward_kwargs = {}
         for k, v in batch.items():
