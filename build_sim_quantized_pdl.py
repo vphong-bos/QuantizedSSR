@@ -378,7 +378,7 @@ def main(args):
             print(prefix, type(obj), e)
 
     first_batch = next(iter(data_loader))
-    first_batch = extract_data(first_batch)
+    # first_batch = extract_data(first_batch)
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
 
     wrapped_model = AimetTraceWrapper(model).to(args.device).eval()
