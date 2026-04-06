@@ -258,27 +258,33 @@ class SSR(nn.Module):
 
         return bbox_results
 
-    def forward_quant(self, img_metas, img=None, **kwargs):
-        if img is None:
-            raise ValueError("img must not be None in forward_quant")
+    def forward_trace(
+        self,
+        img_metas,
+        img=None,
+        ego_fut_cmd=None,
+        ego_his_trajs=None,
+        ego_lcf_feat=None,
+    ):
+        for var, name in [(img_metas, 'img_metas')]:
+            if not isinstance(var, list):
+                raise TypeError(f'{name} must be a list, but got {type(var)}')
 
-        if isinstance(img, list):
-            assert len(img) == 1, f"Unexpected img list length: {len(img)}"
-            img = img[0]
+        img = [img] if img is None else img
 
-        img_feats = self.extract_feat(img=img, img_metas=img_metas)
+        img_feats = self.extract_feat(img=img[0])
 
-        if isinstance(img_feats, (list, tuple)):
-            for feat in img_feats:
-                if torch.is_tensor(feat):
-                    return feat
-            raise RuntimeError("extract_feat returned no tensor")
+        outs = self.pts_bbox_head(
+            mlvl_feats=img_feats,
+            img_metas=img_metas[0],
+            prev_bev=None,
+            cmd=ego_fut_cmd,
+            ego_his_trajs=ego_his_trajs[0],
+            ego_lcf_feat=ego_lcf_feat[0],
+        )
 
-        if torch.is_tensor(img_feats):
-            return img_feats
-
-        raise RuntimeError(f"Unsupported forward_quant output type: {type(img_feats)}")
-
+        return outs
+    
     def simple_test(
         self,
         outs,
@@ -377,19 +383,16 @@ class SSR(nn.Module):
             ego_fut_pred = ego_fut_preds[ego_fut_cmd_idx]
             ego_fut_pred = ego_fut_pred.cumsum(dim=-2)
             ego_fut_trajs = ego_fut_trajs.cumsum(dim=-2)
-
-            metric_dict_planner_stp3 = {}
-
-            if not torch.jit.is_tracing():
-                metric_dict_planner_stp3 = self.compute_planner_metric_stp3(
-                    pred_ego_fut_trajs = ego_fut_pred[None],
-                    gt_ego_fut_trajs = ego_fut_trajs[None],
-                    gt_agent_boxes = gt_bbox,
-                    gt_agent_feats = gt_attr_label.unsqueeze(0),
-                    gt_map_boxes = gt_map_bbox,
-                    gt_map_labels = gt_map_label,
-                    fut_valid_flag = fut_valid_flag
-                )
+            
+            metric_dict_planner_stp3 = self.compute_planner_metric_stp3(
+                pred_ego_fut_trajs = ego_fut_pred[None],
+                gt_ego_fut_trajs = ego_fut_trajs[None],
+                gt_agent_boxes = gt_bbox,
+                gt_agent_feats = gt_attr_label.unsqueeze(0),
+                gt_map_boxes = gt_map_bbox,
+                gt_map_labels = gt_map_label,
+                fut_valid_flag = fut_valid_flag
+            )
             metric_dict.update(metric_dict_planner_stp3)
 
         return outs['bev_embed'], bbox_results, metric_dict

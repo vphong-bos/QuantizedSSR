@@ -43,38 +43,33 @@ class AimetTraceWrapper(torch.nn.Module):
         self.runtime_batch = None
 
     def set_batch(self, batch):
-        self.runtime_batch = batch  # batch already comes from extract_data()
+        self.runtime_batch = batch
 
     def forward(self, img=None, **kwargs):
-        # normal eval / calibration path
+        # Real path: used by eval / compute_encodings
         if kwargs:
             return self.model(img=img, **kwargs)
 
-        # AIMET tracing path
-        batch = dict(self.runtime_batch)
+        # Trace path: used by QuantizationSimModel(dummy_input=...)
+        batch = self.runtime_batch
+        assert batch is not None, "runtime_batch must be set before tracing"
 
-        if not torch.is_tensor(img):
-            raise TypeError(f"Expected tensor img, got {type(img)}")
+        if img is None:
+            raise ValueError("img must not be None in trace mode")
 
-        # SSR expects batch-first camera tensor
-        if img.ndim == 4:   # [6, 3, H, W]
+        if img.ndim == 4:
             img = img.unsqueeze(0)
         elif img.ndim != 5:
-            raise ValueError(f"Unexpected traced img shape: {img.shape}")
+            raise ValueError(f"Unexpected img shape in trace mode: {img.shape}")
 
-        # keep exact working eval schema: img is [tensor]
-        batch["img"] = [img]
-
-        # useful sanity check
-        metas = batch["img_metas"]
-        assert isinstance(metas, list) and isinstance(metas[0], list)
-        assert len(metas[0][0]["lidar2img"]) == img.shape[1], (
-            f"num_cam mismatch: lidar2img has {len(metas[0][0]['lidar2img'])}, "
-            f"img has shape {img.shape}"
+        return self.model.forward_trace(
+            img_metas=batch["img_metas"],
+            img=[img],  # preserve your extracted batch schema
+            ego_fut_cmd=batch["ego_fut_cmd"],
+            ego_his_trajs=batch["ego_his_trajs"],
+            ego_lcf_feat=batch["ego_lcf_feat"],
         )
 
-        return self.model(return_loss=False, rescale=True, **batch)
-    
 def aimet_forward_fn(model, inputs):
     if isinstance(inputs, dict):
         img = inputs["img"]
