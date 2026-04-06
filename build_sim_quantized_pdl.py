@@ -54,7 +54,7 @@ from mmdet.apis import set_random_seed
 from mmdet.datasets import DATASETS, replace_ImageToTensor
 
 from evaluation.eval_dataset import build_eval_loader
-from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn, prepare_batch, create_quant_sim, calibration_forward_pass
+from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn, prepare_batch, create_quant_sim, calibration_forward_pass, move_to_device_keep_structure
 from ssr.projects.mmdet3d_plugin.SSR.model import load_default_model
 
 from aimet_common.defs import QuantScheme
@@ -376,17 +376,6 @@ def main(args):
             pickle.dumps(obj)
         except Exception as e:
             print(prefix, type(obj), e)
-
-    def move_to_device_keep_structure(x, device):
-        if torch.is_tensor(x):
-            return x.to(device)
-        if isinstance(x, list):
-            return [move_to_device_keep_structure(v, device) for v in x]
-        if isinstance(x, tuple):
-            return tuple(move_to_device_keep_structure(v, device) for v in x)
-        if isinstance(x, dict):
-            return {k: move_to_device_keep_structure(v, device) for k, v in x.items()}
-        return x
 
     first_batch = next(iter(data_loader))
     first_batch = extract_data(first_batch)   # keep this function unchanged

@@ -100,6 +100,17 @@ def run_model_on_batch(model, batch, device):
 
     return model(img)
 
+def move_to_device_keep_structure(x, device):
+    if torch.is_tensor(x):
+        return x.to(device)
+    if isinstance(x, list):
+        return [move_to_device_keep_structure(v, device) for v in x]
+    if isinstance(x, tuple):
+        return tuple(move_to_device_keep_structure(v, device) for v in x)
+    if isinstance(x, dict):
+        return {k: move_to_device_keep_structure(v, device) for k, v in x.items()}
+    return x
+
 def calibration_forward_pass(model, forward_pass_args):
     data_loader, device, calib_batches, calib_max_samples = forward_pass_args
 
@@ -108,18 +119,13 @@ def calibration_forward_pass(model, forward_pass_args):
 
     with torch.no_grad():
         for i, data in enumerate(data_loader):
-            data = extract_data(data)
-            data = prepare_batch(data, device)
+            data = extract_data(data)  # keep unchanged
+            data = move_to_device_keep_structure(data, device)
 
             model(return_loss=False, rescale=True, **data)
 
-            img = data["img"]
-            if isinstance(img, list):
-                assert len(img) == 1, f"Unexpected img list length: {len(img)}"
-                batch_size = img[0].shape[0]
-            else:
-                batch_size = img.shape[0]
-
+            batch_img = data["img"][0]
+            batch_size = batch_img.shape[0]
             seen += batch_size
 
             if calib_batches is not None and i + 1 >= calib_batches:
