@@ -31,6 +31,27 @@ from evaluation.eval_dataset import extract_data
 #             img_metas=batch["img_metas"],
 #         )
 
+def unwrap_datacontainer(x):
+    while hasattr(x, "data"):
+        x = x.data
+    return x
+
+def unwrap_singleton_list(x):
+    while isinstance(x, list) and len(x) == 1:
+        x = x[0]
+    return x
+
+def normalize_img_metas(x):
+    x = unwrap_datacontainer(x)
+
+    while isinstance(x, list) and len(x) == 1 and isinstance(x[0], list):
+        x = x[0]
+
+    if isinstance(x, dict):
+        x = [x]
+
+    return x
+
 class AimetTraceWrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
@@ -45,9 +66,12 @@ class AimetTraceWrapper(torch.nn.Module):
             return self.model(img=img, **kwargs)
 
         batch = dict(self.runtime_batch)
-        batch["img"] = img
-        return self.model(return_loss=False, rescale=True, **batch)
 
+        batch["img"] = img
+        batch["img_metas"] = normalize_img_metas(batch["img_metas"])
+
+        return self.model(return_loss=False, rescale=True, **batch)
+    
 def aimet_forward_fn(model, inputs):
     if isinstance(inputs, dict):
         img = inputs["img"]
