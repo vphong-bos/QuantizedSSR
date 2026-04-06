@@ -283,7 +283,22 @@ class SSR(nn.Module):
             ego_lcf_feat=ego_lcf_feat[0],
         )
 
-        return outs
+        # Return only tensors / tuples of tensors
+        tensors = []
+        for k in sorted(outs.keys()):
+            v = outs[k]
+            if torch.is_tensor(v):
+                tensors.append(v)
+            elif isinstance(v, (list, tuple)):
+                for item in v:
+                    if torch.is_tensor(item):
+                        tensors.append(item)
+                    else:
+                        raise TypeError(f"Unsupported non-tensor item in outs[{k}]: {type(item)}")
+            else:
+                raise TypeError(f"Unsupported output type in outs[{k}]: {type(v)}")
+
+        return tuple(tensors)
     
     def simple_test(
         self,
