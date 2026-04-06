@@ -645,37 +645,52 @@ def main(args):
     # for path, typ, err in bad_hits[:100]:
     #     print(f"{path} :: {typ} :: {err}")
 
-    def strip_video_writers(obj, visited=None):
-        if visited is None:
-            visited = set()
+    # def strip_video_writers(obj, visited=None):
+    #     if visited is None:
+    #         visited = set()
 
-        oid = id(obj)
-        if oid in visited:
-            return
-        visited.add(oid)
+    #     oid = id(obj)
+    #     if oid in visited:
+    #         return
+    #     visited.add(oid)
 
-        # FIX: all must be dicts
-        if hasattr(obj, "_video_writers"):
-            obj._video_writers = {}
+    #     # FIX: all must be dicts
+    #     if hasattr(obj, "_video_writers"):
+    #         obj._video_writers = {}
 
-        if hasattr(obj, "_combined_video_writers"):
-            obj._combined_video_writers = {}
+    #     if hasattr(obj, "_combined_video_writers"):
+    #         obj._combined_video_writers = {}
 
-        if hasattr(obj, "_integrated_video_writers"):
-            obj._integrated_video_writers = {}
+    #     if hasattr(obj, "_integrated_video_writers"):
+    #         obj._integrated_video_writers = {}
 
-        # recurse
-        if hasattr(obj, "__dict__"):
-            for v in vars(obj).values():
-                strip_video_writers(v, visited)
-        elif isinstance(obj, dict):
-            for v in obj.values():
-                strip_video_writers(v, visited)
-        elif isinstance(obj, (list, tuple)):
-            for v in obj:
-                strip_video_writers(v, visited)
+    #     # recurse
+    #     if hasattr(obj, "__dict__"):
+    #         for v in vars(obj).values():
+    #             strip_video_writers(v, visited)
+    #     elif isinstance(obj, dict):
+    #         for v in obj.values():
+    #             strip_video_writers(v, visited)
+    #     elif isinstance(obj, (list, tuple)):
+    #         for v in obj:
+    #             strip_video_writers(v, visited)
 
-    strip_video_writers(sim)
+    # strip_video_writers(sim)
+
+    def disable_spatial_attention_debug(module):
+        for m in module.modules():
+            if m.__class__.__name__ == "SpatialCrossAttention":
+                m.debug_save = False
+                try:
+                    m.close_debug_writers()
+                except Exception:
+                    pass
+                m._video_writers = {}
+                m._combined_video_writers = {}
+                m._integrated_video_writers = {}
+
+    # right before export
+    disable_spatial_attention_debug(sim.model)
 
     # save_dir = args.save_quant_checkpoint
     # os.makedirs(save_dir, exist_ok=True)
