@@ -518,17 +518,98 @@ def main(args):
     calib_time = time.time() - calib_start
     print(f"Calibration finished in {calib_time:.2f} s")
 
-    def inspect_spatial_cross_attention_modules(model):
-        for name, module in model.named_modules():
-            if module.__class__.__name__ == "SpatialCrossAttention":
-                print(f"\n{name}")
-                print("  debug_save:", getattr(module, "debug_save", None))
-                print("  _video_writers keys:", list(getattr(module, "_video_writers", {}).keys()) if isinstance(getattr(module, "_video_writers", None), dict) else type(getattr(module, "_video_writers", None)))
-                print("  _combined_video_writers keys:", list(getattr(module, "_combined_video_writers", {}).keys()) if isinstance(getattr(module, "_combined_video_writers", None), dict) else type(getattr(module, "_combined_video_writers", None)))
-                print("  _integrated_video_writers keys:", list(getattr(module, "_integrated_video_writers", {}).keys()) if isinstance(getattr(module, "_integrated_video_writers", None), dict) else type(getattr(module, "_integrated_video_writers", None)))
+    import cv2
+    import pickle
+    from collections.abc import Mapping, Sequence
 
-    inspect_spatial_cross_attention_modules(sim.model)
+    def find_objects_by_type(obj, target_type, max_depth=8):
+        visited = set()
+        hits = []
 
+        def walk(x, path, depth):
+            if depth > max_depth:
+                return
+
+            obj_id = id(x)
+            if obj_id in visited:
+                return
+            visited.add(obj_id)
+
+            try:
+                if isinstance(x, target_type):
+                    hits.append(path)
+                    return
+            except Exception:
+                pass
+
+            # dict-like
+            if isinstance(x, Mapping):
+                for k, v in x.items():
+                    walk(v, f"{path}[{k!r}]", depth + 1)
+                return
+
+            # list/tuple-like, but avoid strings/bytes
+            if isinstance(x, Sequence) and not isinstance(x, (str, bytes, bytearray)):
+                for i, v in enumerate(x):
+                    walk(v, f"{path}[{i}]", depth + 1)
+                return
+
+            # normal python object attributes
+            if hasattr(x, "__dict__"):
+                for name, v in vars(x).items():
+                    walk(v, f"{path}.{name}", depth + 1)
+
+        walk(obj, "root", 0)
+        return hits
+
+
+    def find_non_picklable_paths(obj, max_depth=6):
+        visited = set()
+        bad = []
+
+        def walk(x, path, depth):
+            if depth > max_depth:
+                return
+
+            obj_id = id(x)
+            if obj_id in visited:
+                return
+            visited.add(obj_id)
+
+            # Try pickling this object itself
+            try:
+                pickle.dumps(x)
+            except Exception as e:
+                bad.append((path, type(x).__name__, repr(e)))
+
+            if isinstance(x, Mapping):
+                for k, v in x.items():
+                    walk(v, f"{path}[{k!r}]", depth + 1)
+                return
+
+            if isinstance(x, Sequence) and not isinstance(x, (str, bytes, bytearray)):
+                for i, v in enumerate(x):
+                    walk(v, f"{path}[{i}]", depth + 1)
+                return
+
+            if hasattr(x, "__dict__"):
+                for name, v in vars(x).items():
+                    walk(v, f"{path}.{name}", depth + 1)
+
+        walk(obj, "root", 0)
+        return bad
+
+    # 1) specifically find VideoWriter
+    vw_hits = find_objects_by_type(sim, cv2.VideoWriter, max_depth=10)
+    print("VideoWriter hits:")
+    for p in vw_hits:
+        print("  ", p)
+
+    # 2) broader scan for non-picklable things
+    bad_hits = find_non_picklable_paths(sim, max_depth=5)
+    print("\nNon-picklable hits:")
+    for path, typ, err in bad_hits[:100]:
+        print(f"{path} :: {typ} :: {err}")
 
     if args.save_quant_checkpoint is not None:
         quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
