@@ -54,6 +54,7 @@ class AimetTraceWrapper(torch.nn.Module):
 
         batch = dict(self.runtime_batch)
         batch["img"] = [img]
+        print(batch)
         return self.model(return_loss=False, rescale=True, **batch)
     
 def aimet_forward_fn(model, inputs):

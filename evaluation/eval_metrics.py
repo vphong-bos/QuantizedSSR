@@ -12,6 +12,8 @@ def get_model_result(model_obj, data):
     if backend == "torch":
         model = model_obj["model"]
 
+        print(data)
+
         with torch.no_grad():
             result = model(return_loss=False, rescale=True, **data)
 
