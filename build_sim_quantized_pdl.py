@@ -554,27 +554,98 @@ def main(args):
     calib_time = time.time() - calib_start
     print(f"Calibration finished in {calib_time:.2f} s")
 
-    def strip_non_picklable_runtime_state(model):
-        target = model.model if hasattr(model, "model") else model
+    import cv2
+    import pickle
+    from collections.abc import Mapping, Sequence
 
-        for attr in [
-            "planning_metric",
-        ]:
-            if hasattr(target, attr):
-                setattr(target, attr, None)
+    def find_objects_by_type(obj, target_type, max_depth=8):
+        visited = set()
+        hits = []
 
-    strip_non_picklable_runtime_state(sim.model)
+        def walk(x, path, depth):
+            if depth > max_depth:
+                return
 
-    # remove non-picklable runtime state before AIMET checkpoint save
-    base_model = sim.model
+            obj_id = id(x)
+            if obj_id in visited:
+                return
+            visited.add(obj_id)
 
-    if hasattr(base_model, "model"):   # if wrapped
-        base_model = base_model.model
+            try:
+                if isinstance(x, target_type):
+                    hits.append(path)
+                    return
+            except Exception:
+                pass
 
-    if hasattr(base_model, "planning_metric"):
-        base_model.planning_metric = None
+            # dict-like
+            if isinstance(x, Mapping):
+                for k, v in x.items():
+                    walk(v, f"{path}[{k!r}]", depth + 1)
+                return
 
-    quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
+            # list/tuple-like, but avoid strings/bytes
+            if isinstance(x, Sequence) and not isinstance(x, (str, bytes, bytearray)):
+                for i, v in enumerate(x):
+                    walk(v, f"{path}[{i}]", depth + 1)
+                return
+
+            # normal python object attributes
+            if hasattr(x, "__dict__"):
+                for name, v in vars(x).items():
+                    walk(v, f"{path}.{name}", depth + 1)
+
+        walk(obj, "root", 0)
+        return hits
+
+
+    def find_non_picklable_paths(obj, max_depth=6):
+        visited = set()
+        bad = []
+
+        def walk(x, path, depth):
+            if depth > max_depth:
+                return
+
+            obj_id = id(x)
+            if obj_id in visited:
+                return
+            visited.add(obj_id)
+
+            # Try pickling this object itself
+            try:
+                pickle.dumps(x)
+            except Exception as e:
+                bad.append((path, type(x).__name__, repr(e)))
+
+            if isinstance(x, Mapping):
+                for k, v in x.items():
+                    walk(v, f"{path}[{k!r}]", depth + 1)
+                return
+
+            if isinstance(x, Sequence) and not isinstance(x, (str, bytes, bytearray)):
+                for i, v in enumerate(x):
+                    walk(v, f"{path}[{i}]", depth + 1)
+                return
+
+            if hasattr(x, "__dict__"):
+                for name, v in vars(x).items():
+                    walk(v, f"{path}.{name}", depth + 1)
+
+        walk(obj, "root", 0)
+        return bad
+
+    # 1) specifically find VideoWriter
+    vw_hits = find_objects_by_type(sim, cv2.VideoWriter, max_depth=10)
+    print("VideoWriter hits:")
+    for p in vw_hits:
+        print("  ", p)
+
+    # 2) broader scan for non-picklable things
+    bad_hits = find_non_picklable_paths(sim, max_depth=5)
+    print("\nNon-picklable hits:")
+    for path, typ, err in bad_hits[:100]:
+        print(f"{path} :: {typ} :: {err}")
 
     if args.save_quant_checkpoint is not None:
         quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
