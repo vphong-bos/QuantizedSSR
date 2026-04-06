@@ -41,33 +41,12 @@ class AimetTraceWrapper(torch.nn.Module):
         self.runtime_batch = batch
 
     def forward(self, img=None, **kwargs):
-        # Real path: calibration/eval should come here
         if kwargs:
             return self.model(img=img, **kwargs)
 
-        # Fallback path: only for dummy-input tracing/bootstrap
-        batch = self.runtime_batch
-        assert batch is not None, "runtime_batch must be set before tensor-only forward"
-
-        print("img type:", type(batch["img"]))
-        print("img shape:", batch["img"].shape if torch.is_tensor(batch["img"]) else None)
-
-        print("type(img_metas):", type(batch["img_metas"]))
-        print("len(img_metas):", len(batch["img_metas"]) if isinstance(batch["img_metas"], list) else None)
-
-        print(batch)
-
-        forward_kwargs = {}
-        for k, v in batch.items():
-            if k != "img":
-                forward_kwargs[k] = v
-
-        return self.model(
-            img=img,
-            return_loss=False,
-            rescale=True,
-            **forward_kwargs,
-        )
+        batch = dict(self.runtime_batch)
+        batch["img"] = img
+        return self.model(return_loss=False, rescale=True, **batch)
 
 def aimet_forward_fn(model, inputs):
     if isinstance(inputs, dict):
