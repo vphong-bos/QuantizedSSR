@@ -35,9 +35,31 @@ class AimetTraceWrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
         self.model = model
+        self.runtime_batch = None
+
+    def set_batch(self, batch):
+        self.runtime_batch = batch
 
     def forward(self, img=None, **kwargs):
-        return self.model(img=img, **kwargs)
+        # Real path: calibration/eval should come here
+        if kwargs:
+            return self.model(img=img, **kwargs)
+
+        # Fallback path: only for dummy-input tracing/bootstrap
+        batch = self.runtime_batch
+        assert batch is not None, "runtime_batch must be set before tensor-only forward"
+
+        forward_kwargs = {}
+        for k, v in batch.items():
+            if k != "img":
+                forward_kwargs[k] = v
+
+        return self.model(
+            img=img,
+            return_loss=False,
+            rescale=True,
+            **forward_kwargs,
+        )
 
 def aimet_forward_fn(model, inputs):
     if isinstance(inputs, dict):
@@ -89,21 +111,22 @@ def calibration_forward_pass(model, forward_pass_args):
     seen = 0
 
     with torch.no_grad():
-        for batch_idx, data in enumerate(data_loader):
-            result = model(return_loss=False, rescale=True, **data)
+        for i, data in enumerate(data_loader):
+            data = extract_data(data)
+            data = prepare_batch(data, device)
 
-            # optional sample limit logic
-            img = data.get("img", None)
+            model(return_loss=False, rescale=True, **data)
+
+            img = data["img"]
             if isinstance(img, list):
+                assert len(img) == 1, f"Unexpected img list length: {len(img)}"
                 batch_size = img[0].shape[0]
-            elif torch.is_tensor(img):
-                batch_size = img.shape[0]
             else:
-                batch_size = 1
+                batch_size = img.shape[0]
 
             seen += batch_size
 
-            if calib_batches is not None and (batch_idx + 1) >= calib_batches:
+            if calib_batches is not None and i + 1 >= calib_batches:
                 break
             if calib_max_samples is not None and seen >= calib_max_samples:
                 break

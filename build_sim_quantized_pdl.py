@@ -75,6 +75,8 @@ from mmcv.cnn.bricks.drop import Dropout
 
 from aimet_torch.v2.nn import QuantizationMixin
 
+from evaluation.eval_dataset import extract_data
+
 QuantizationMixin.ignore(FocalLoss)
 QuantizationMixin.ignore(L1Loss)
 QuantizationMixin.ignore(GIoULoss)
@@ -376,14 +378,15 @@ def main(args):
             print(prefix, type(obj), e)
 
     first_batch = next(iter(data_loader))
+    first_batch = extract_data(first_batch)
     prepared_batch = prepare_batch(first_batch, torch.device(args.device))
 
-    wrapped_model = AimetTraceWrapper(model=model).to(args.device).eval()
+    wrapped_model = AimetTraceWrapper(model).to(args.device).eval()
     wrapped_model.set_batch(prepared_batch)
 
     real_img = prepared_batch["img"]
     if isinstance(real_img, list):
-        assert len(real_img) == 1, f"Unexpected img list length: {len(real_img)}"
+        assert len(real_img) == 1
         real_img = real_img[0]
 
     dummy_input = torch.zeros_like(real_img)
