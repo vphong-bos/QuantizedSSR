@@ -274,7 +274,8 @@ class SSRPerceptionTransformer(BaseModule):
             [each['can_bus'] for each in kwargs['img_metas']])  # [:, :]
         can_bus = self.can_bus_mlp(can_bus)[None, :, :]
         # op.save_tensor(can_bus, 'pts/can_bus.pt')
-        bev_queries = bev_queries + can_bus * self.use_can_bus
+        if self.use_can_bus:
+            bev_queries = bev_queries + can_bus
         # op.save_tensor(bev_queries, 'pts/bev_queries_1.pt')
 
         feat_flatten = []
