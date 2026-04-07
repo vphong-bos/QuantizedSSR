@@ -32,7 +32,7 @@ map_num_classes = len(map_classes)
 
 input_modality = dict(
     use_lidar=False,
-    use_camera=False,
+    use_camera=True,
     use_radar=False,
     use_map=False,
     use_external=True)
