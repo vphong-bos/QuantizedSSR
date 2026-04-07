@@ -660,9 +660,9 @@ def main(args):
     # for path, typ, err in bad_hits[:100]:
     #     print(f"{path} :: {typ} :: {err}")
 
-    # if args.save_quant_checkpoint is not None:
-    #     quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
-    #     print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
+    if args.save_quant_checkpoint is not None:
+        quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
+        print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
 
     if not args.no_export:
         export_dir = osp.join(args.work_dir, args.export_prefix)
@@ -697,7 +697,8 @@ def main(args):
             onnx_path,
             input_names=["input"],
             output_names=["output"],
-            opset_version=20,
+            opset_version=17,
+            dynamo=False,
             export_int32_bias=True,
             prequantize_constants=True
         )
