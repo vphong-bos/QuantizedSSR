@@ -499,13 +499,13 @@ def main(args):
     #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention",
     # ])
 
-    # skip_layer_names = []
+    skip_layer_names = []
 
-    skip_layer_names = [
-        "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0",
-        "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0",
-        "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0",
-    ]
+    # skip_layer_names = [
+    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0",
+    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0",
+    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0",
+    # ]
 
 
     # skip_layer_names.extend([
