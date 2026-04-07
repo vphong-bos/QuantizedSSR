@@ -416,7 +416,7 @@ def load_quantized_model(
     from evaluation.eval_dataset import build_eval_loader
     from ssr.projects.mmdet3d_plugin.SSR.model import load_default_model
 
-    from mmdet3d.models import build_model
+    from ssr.projects.mmdet3d_plugin.SSR.utils.builder import build_model
 
     cfg, dataset, data_loader = build_eval_loader(config)
 
