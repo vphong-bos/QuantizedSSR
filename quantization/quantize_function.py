@@ -416,10 +416,30 @@ def load_quantized_model(
     from evaluation.eval_dataset import build_eval_loader
     from ssr.projects.mmdet3d_plugin.SSR.model import load_default_model
 
-    # Rebuild dataset/loader exactly like PTQ script
+    from mmdet3d.models import build_model
+
     cfg, dataset, data_loader = build_eval_loader(config)
 
-    model, _ = load_default_model(cfg, quant_weights, dataset, fuse_conv_bn, device)
+    model = build_model(cfg.model, test_cfg=cfg.get("test_cfg"))
+
+    print(f"[TORCH] Loading exported AIMET weights from: {quant_weights}")
+    ckpt = torch.load(quant_weights, map_location="cpu")
+
+    if isinstance(ckpt, dict) and "state_dict" in ckpt:
+        state_dict = ckpt["state_dict"]
+    else:
+        state_dict = ckpt
+
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    print(f"[TORCH] Missing keys: {len(missing)}")
+    print(f"[TORCH] Unexpected keys: {len(unexpected)}")
+    if missing:
+        print("[TORCH] First missing keys:", missing[:20])
+    if unexpected:
+        print("[TORCH] First unexpected keys:", unexpected[:20])
+
+    model.CLASSES = getattr(dataset, "CLASSES", None)
+    model.PALETTE = getattr(dataset, "PALETTE", None)
     model = model.to(device).eval()
 
     first_batch = next(iter(data_loader))
