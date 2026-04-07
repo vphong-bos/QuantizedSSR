@@ -340,6 +340,7 @@ def load_quantized_model(
     default_output_bw=8,
     default_param_bw=8,
     config_path=None,
+    enable_bn_fold=False,
 ):
     print("Loading quantized model...")
 
@@ -439,6 +440,8 @@ def load_quantized_model(
 
     from ssr.projects.mmdet3d_plugin.SSR.utils.builder import build_model
 
+    from aimet_torch.batch_norm_fold import fold_all_batch_norms
+
     cfg, dataset, data_loader = build_eval_loader(config)
 
     model = build_model(cfg.model, test_cfg=cfg.get("test_cfg"))
@@ -462,6 +465,7 @@ def load_quantized_model(
 
     model.CLASSES = getattr(dataset, "CLASSES", None)
     model.PALETTE = getattr(dataset, "PALETTE", None)
+
     model = model.to(device).eval()
 
     first_batch = next(iter(data_loader))
@@ -469,6 +473,27 @@ def load_quantized_model(
     prepared_batch = move_to_device_keep_structure(first_batch, torch.device(device))
 
     wrapped_model = AimetTraceWrapper(model=model).to(device).eval()
+
+    def maybe_run_bn_fold(wrapped_model: AimetTraceWrapper, dummy_input: torch.Tensor, enabled: bool) -> None:
+        if not enabled:
+            print("BN folding disabled")
+            return
+
+        print("Applying AIMET batch norm folding...")
+        try:
+            fold_all_batch_norms(
+                model=wrapped_model,
+                input_shapes=tuple(dummy_input.shape),
+                dummy_input=dummy_input,
+            )
+        except TypeError:
+            fold_all_batch_norms(
+                model=wrapped_model,
+                input_shapes=tuple(dummy_input.shape),
+            )
+
+    maybe_run_bn_fold(wrapped_model, dummy_input, enable_bn_fold)
+
     wrapped_model.set_batch(prepared_batch)
 
     real_img = prepared_batch["img"][0]
