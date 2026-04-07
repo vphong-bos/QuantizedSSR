@@ -698,7 +698,7 @@ def main(args):
             input_names=["input"],
             output_names=["output"],
             opset_version=17,
-            export_int32_bias=True,
+            export_int32_bias=False,
             prequantize_constants=True
         )
         print(f"Exported QDQ ONNX to: {onnx_path}")
