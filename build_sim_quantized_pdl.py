@@ -473,22 +473,20 @@ def main(args):
     #     # "pts_bbox_head.way_point.weight",
     # ]
 
-    # def get_skip_layer_names(model):
-    #     target_classes = {
-    #         "SpatialCrossAttention",
-    #         "MSDeformableAttention3D",
-    #     }
+    def get_skip_layer_names(model):
+        target_classes = {
+            "SpatialCrossAttention",
+            "MSDeformableAttention3D",
+        }
 
-    #     skip_layer_names = []
-    #     for name, module in model.named_modules():
-    #         if module.__class__.__name__ in target_classes:
-    #             skip_layer_names.append(name)
+        skip_layer_names = []
+        for name, module in model.named_modules():
+            if module.__class__.__name__ in target_classes:
+                skip_layer_names.append(name)
 
-    #     return skip_layer_names
+        return skip_layer_names
 
-    # skip_layer_names = get_skip_layer_names(wrapped_model)
-
-    skip_layer_names = []
+    skip_layer_names = get_skip_layer_names(wrapped_model)
 
     skip_layer_names.extend([
         "model.pts_bbox_head.transformer.encoder.layers.0.attentions.1",
