@@ -312,7 +312,14 @@ def load_quantized_model(
     device,
     provider="CPUExecutionProvider",
     graph_optimization_level="basic",
-    encodings_path=None,   # <-- new (optional)
+    encodings_path=None,
+    config=None,
+    checkpoint=None,
+    fuse_conv_bn=False,
+    quant_scheme="tf_enhanced",
+    default_output_bw=8,
+    default_param_bw=8,
+    config_path=None,
 ):
     print("Loading quantized model...")
 
@@ -343,7 +350,6 @@ def load_quantized_model(
         else:
             providers = ["CPUExecutionProvider"]
 
-        # keep only providers that actually exist in this environment
         providers = [p for p in providers if p in available]
 
         print(f"[ONNX] requested provider: {provider}")
@@ -373,22 +379,92 @@ def load_quantized_model(
             "input_name": input_name,
             "output_names": output_names,
             "model": None,
+            "sim": None,
             "graph_optimization_level": graph_optimization_level,
-            "encodings_path": encodings_path,  # optional, usually None for ONNX
+            "encodings_path": encodings_path,
         }
 
-    print("Detected AIMET checkpoint")
+    # Torch / AIMET path
+    print("Detected torch/AIMET artifact")
 
-    sim = quantsim.load_checkpoint(quant_weights)
+    # Case 1: real AIMET checkpoint created by quantsim.save_checkpoint(...)
+    if encodings_path is None:
+        print("[TORCH] No encodings_path provided, trying AIMET checkpoint load...")
+        sim = quantsim.load_checkpoint(quant_weights)
+        sim.model.to(device).eval()
+
+        return {
+            "backend": "torch",
+            "model": sim.model,
+            "sim": sim,
+            "session": None,
+            "input_name": None,
+            "output_names": None,
+            "graph_optimization_level": None,
+            "encodings_path": None,
+        }
+
+    # Case 2: plain model checkpoint + encodings file
+    print(f"[TORCH] encodings_path provided: {encodings_path}")
+    print("[TORCH] Rebuilding FP32 model and applying encodings...")
+
+    if config is None or checkpoint is None:
+        raise ValueError(
+            "When encodings_path is provided, you must also provide config and checkpoint "
+            "so the FP32 model can be rebuilt before applying encodings."
+        )
+
+    # Rebuild dataset/loader exactly like PTQ script
+    cfg, dataset, data_loader = build_eval_loader(config)
+
+    model, _ = load_default_model(cfg, checkpoint, dataset, fuse_conv_bn, device)
+    model = model.to(device).eval()
+
+    first_batch = next(iter(data_loader))
+    first_batch = extract_data(first_batch)
+    prepared_batch = move_to_device_keep_structure(first_batch, torch.device(device))
+
+    wrapped_model = AimetTraceWrapper(model=model).to(device).eval()
+    wrapped_model.set_batch(prepared_batch)
+
+    real_img = prepared_batch["img"][0]
+    if not torch.is_tensor(real_img):
+        raise TypeError(f"Expected tensor, got {type(real_img)}")
+
+    if real_img.ndim == 4:
+        real_img = real_img.unsqueeze(0)
+    elif real_img.ndim != 5:
+        raise ValueError(f"Unexpected real_img shape: {real_img.shape}")
+
+    dummy_input = torch.zeros_like(real_img)
+
+    # Keep this aligned with your PTQ build script skip list
+    skip_layer_names = [
+        "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0",
+        "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0",
+        "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0",
+    ]
+
+    sim = create_quant_sim(
+        model=wrapped_model,
+        device=device,
+        dummy_input=dummy_input,
+        quant_scheme=quant_scheme,
+        default_output_bw=default_output_bw,
+        default_param_bw=default_param_bw,
+        config_path=config_path,
+        skip_layer_names=skip_layer_names,
+    )
+
+    print(f"[TORCH] Loading encodings from: {encodings_path}")
+    sim.load_encodings(encodings_path)
+
     sim.model.to(device).eval()
 
-    if encodings_path is not None:
-        print(f"[TORCH] Loading encodings from: {encodings_path}")
-        sim.load_encodings(encodings_path)
-        
     return {
         "backend": "torch",
         "model": sim.model,
+        "sim": sim,
         "session": None,
         "input_name": None,
         "output_names": None,

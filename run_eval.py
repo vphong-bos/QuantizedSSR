@@ -221,6 +221,7 @@ def main():
             provider=args.provider,
             encodings_path=args.encoding_path
         )
+            
 
         print("Evaluating quantized model...")
         quant_results = evaluate_model(
