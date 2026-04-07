@@ -66,7 +66,6 @@ from aimet_torch import quantsim
 from mmdet.models.losses.focal_loss import FocalLoss
 from mmdet.models.losses.smooth_l1_loss import L1Loss
 from mmdet.models.losses.iou_loss import GIoULoss
-from mmcv.cnn.bricks.wrappers import Linear
 from mmcv.cnn.bricks.drop import Dropout
 
 from aimet_torch.v2.nn import QuantizationMixin
