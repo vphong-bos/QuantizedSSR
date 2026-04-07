@@ -325,10 +325,33 @@ def load_quantized_model(
             graph_optimization_level
         )
 
+        available = ort.get_available_providers()
+        print(f"[ONNX] available providers: {available}")
+
+        if provider == "TensorrtExecutionProvider":
+            providers = [
+                "TensorrtExecutionProvider",
+                "CUDAExecutionProvider",
+                "CPUExecutionProvider",
+            ]
+        elif provider == "CUDAExecutionProvider":
+            providers = [
+                "CUDAExecutionProvider",
+                "CPUExecutionProvider",
+            ]
+        else:
+            providers = ["CPUExecutionProvider"]
+
+        # keep only providers that actually exist in this environment
+        providers = [p for p in providers if p in available]
+
+        print(f"[ONNX] requested provider: {provider}")
+        print(f"[ONNX] provider fallback order: {providers}")
+
         session = ort.InferenceSession(
             quant_weights,
             sess_options=so,
-            providers=[provider],
+            providers=providers,
         )
 
         inputs = session.get_inputs()
@@ -337,7 +360,7 @@ def load_quantized_model(
         input_name = inputs[0].name if len(inputs) > 0 else None
         output_names = [o.name for o in outputs]
 
-        print(f"[ONNX] provider: {provider}")
+        print(f"[ONNX] session providers: {session.get_providers()}")
         print(f"[ONNX] graph optimization level: {graph_optimization_level}")
         print(f"[ONNX] num_inputs: {len(inputs)}")
         print(f"[ONNX] input: {input_name}")
