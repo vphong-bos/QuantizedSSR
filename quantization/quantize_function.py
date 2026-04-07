@@ -479,8 +479,36 @@ def load_quantized_model(
         skip_layer_names=skip_layer_names,
     )
 
-    print(f"[TORCH] Loading encodings from: {encoding_path}")
-    sim.load_encodings(encoding_path)
+    print("has load_encodings:", hasattr(sim, "load_encodings"))
+
+    # Load with strict settings
+    sim.load_encodings(encoding_path, strict=True, partial=False)
+
+    # Find uninitialized quantizers
+    for name, module in sim.model.named_modules():
+        if hasattr(module, "input_quantizers"):
+            for i, q in enumerate(module.input_quantizers):
+                if q is not None:
+                    try:
+                        _ = q.get_scale()
+                    except Exception:
+                        print(f"UNINIT input quantizer: {name}.input_quantizers[{i}]")
+
+        if hasattr(module, "output_quantizers"):
+            for i, q in enumerate(module.output_quantizers):
+                if q is not None:
+                    try:
+                        _ = q.get_scale()
+                    except Exception:
+                        print(f"UNINIT output quantizer: {name}.output_quantizers[{i}]")
+
+        if hasattr(module, "param_quantizers"):
+            for pname, q in module.param_quantizers.items():
+                if q is not None:
+                    try:
+                        _ = q.get_scale()
+                    except Exception:
+                        print(f"UNINIT param quantizer: {name}.param_quantizers['{pname}']")
 
     sim.model.to(device).eval()
 
