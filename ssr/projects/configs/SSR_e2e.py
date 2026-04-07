@@ -49,7 +49,7 @@ total_epochs = 12
 model = dict(
     type='SSR',
     use_grid_mask=True,
-    video_test_mode=True,
+    video_test_mode=False,
     pretrained=dict(img='torchvision://resnet50'),
     img_backbone=dict(
         type='ResNet',
