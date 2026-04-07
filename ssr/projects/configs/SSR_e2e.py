@@ -32,7 +32,7 @@ map_num_classes = len(map_classes)
 
 input_modality = dict(
     use_lidar=False,
-    use_camera=True,
+    use_camera=False,
     use_radar=False,
     use_map=False,
     use_external=True)
@@ -334,11 +334,11 @@ data = dict(
     test=dict(type=dataset_type,
               data_root=data_root,
               pc_range=point_cloud_range,
-              ann_file=data_root + 'vad_nuscenes_infos_temporal_train.pkl',
+              ann_file=data_root + 'vad_nuscenes_infos_temporal_val.pkl',
               pipeline=test_pipeline, bev_size=(bev_h_, bev_w_),
               classes=class_names, modality=input_modality, samples_per_gpu=1,
               map_classes=map_classes,
-              map_ann_file=data_root + 'nuscenes_map_anns_train.json',
+              map_ann_file=data_root + 'nuscenes_map_anns_val.json',
               map_fixed_ptsnum_per_line=map_fixed_ptsnum_per_gt_line,
               map_eval_use_same_gt_sample_num_flag=map_eval_use_same_gt_sample_num_flag,
               use_pkl_result=True,
