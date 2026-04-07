@@ -388,40 +388,40 @@ def main(args):
     model, _ = load_default_model(cfg, args.checkpoint, dataset, args.fuse_conv_bn, args.device)
     model = model.to(args.device).eval()
 
-    for i, layer in enumerate(model.pts_bbox_head.transformer.encoder.layers):
-        for j, attn in enumerate(layer.attentions):
-            print(i, j, type(attn), attn.__class__.__module__)
+    # for i, layer in enumerate(model.pts_bbox_head.transformer.encoder.layers):
+    #     for j, attn in enumerate(layer.attentions):
+    #         print(i, j, type(attn), attn.__class__.__module__)
 
-    import pickle
+    # import pickle
 
-    def find_unpickleable(obj, prefix="root", seen=None):
-        if seen is None:
-            seen = set()
+    # def find_unpickleable(obj, prefix="root", seen=None):
+    #     if seen is None:
+    #         seen = set()
 
-        oid = id(obj)
-        if oid in seen:
-            return
-        seen.add(oid)
+    #     oid = id(obj)
+    #     if oid in seen:
+    #         return
+    #     seen.add(oid)
 
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                find_unpickleable(v, f"{prefix}.{k}", seen)
-            return
+    #     if isinstance(obj, dict):
+    #         for k, v in obj.items():
+    #             find_unpickleable(v, f"{prefix}.{k}", seen)
+    #         return
 
-        if isinstance(obj, list):
-            for i, v in enumerate(obj):
-                find_unpickleable(v, f"{prefix}[{i}]", seen)
-            return
+    #     if isinstance(obj, list):
+    #         for i, v in enumerate(obj):
+    #             find_unpickleable(v, f"{prefix}[{i}]", seen)
+    #         return
 
-        if isinstance(obj, tuple):
-            for i, v in enumerate(obj):
-                find_unpickleable(v, f"{prefix}({i})", seen)
-            return
+    #     if isinstance(obj, tuple):
+    #         for i, v in enumerate(obj):
+    #             find_unpickleable(v, f"{prefix}({i})", seen)
+    #         return
 
-        try:
-            pickle.dumps(obj)
-        except Exception as e:
-            print(prefix, type(obj), e)
+    #     try:
+    #         pickle.dumps(obj)
+    #     except Exception as e:
+    #         print(prefix, type(obj), e)
 
     first_batch = next(iter(data_loader))
     first_batch = extract_data(first_batch)   # keep this function unchanged
@@ -499,13 +499,13 @@ def main(args):
     #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention",
     # ])
 
-    skip_layer_names = []
+    # skip_layer_names = []
 
-    # skip_layer_names = [
-    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0",
-    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0",
-    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0",
-    # ]
+    skip_layer_names = [
+        "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0",
+        "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0",
+        "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0",
+    ]
 
 
     # skip_layer_names.extend([
@@ -571,11 +571,11 @@ def main(args):
     calib_time = time.time() - calib_start
     print(f"Calibration finished in {calib_time:.2f} s")
 
-    for m in sim.model.modules():
-        if hasattr(m, "debug_save"):
-            m.debug_save = False
-        if hasattr(m, "close_debug_writers"):
-            m.close_debug_writers()
+    # for m in sim.model.modules():
+    #     if hasattr(m, "debug_save"):
+    #         m.debug_save = False
+    #     if hasattr(m, "close_debug_writers"):
+    #         m.close_debug_writers()
 
     # import cv2
     # import pickle
