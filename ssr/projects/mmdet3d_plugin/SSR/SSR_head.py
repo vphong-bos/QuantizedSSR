@@ -602,7 +602,10 @@ class SSRHead(nn.Module):
         ego_fut_cmd = ego_fut_cmd.squeeze(1).squeeze(1)
 
         ego_fut_gt = ego_fut_gt.unsqueeze(1).repeat(1, self.ego_fut_mode, 1, 1)
-        loss_plan_l1_weight = ego_fut_cmd[..., None, None] * ego_fut_masks[:, None, :, None]
+        loss_plan_l1_weight = (
+            ego_fut_cmd[..., None, None]
+            * ego_fut_masks[:, None, :, None].to(ego_fut_cmd.dtype)
+        )
         loss_plan_l1_weight = loss_plan_l1_weight.repeat(1, 1, 1, 2)
 
         loss_plan_l1 = self.loss_plan_reg(
