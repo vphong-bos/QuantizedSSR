@@ -51,7 +51,7 @@ def build_eval_loader(
     cfg.model.pretrained = None
     cfg, samples_per_gpu = prepare_cfg(cfg)
 
-    dataset = build_dataset(cfg.data.test)
+    dataset = build_dataset(cfg.data.val)
     data_loader = build_dataloader(
         dataset,
         samples_per_gpu=samples_per_gpu,
