@@ -53,10 +53,6 @@ from mmcv.utils import Registry, build_from_cfg
 from mmdet.apis import set_random_seed
 from mmdet.datasets import DATASETS, replace_ImageToTensor
 
-from evaluation.eval_dataset import build_eval_loader
-from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn, prepare_batch, create_quant_sim, calibration_forward_pass, move_to_device_keep_structure
-from ssr.projects.mmdet3d_plugin.SSR.model import load_default_model
-
 from aimet_common.defs import QuantScheme
 from aimet_common.utils import CallbackFunc
 from aimet_torch.batch_norm_fold import fold_all_batch_norms
@@ -75,14 +71,18 @@ from mmcv.cnn.bricks.drop import Dropout
 
 from aimet_torch.v2.nn import QuantizationMixin
 
-from evaluation.eval_dataset import extract_data
-
 QuantizationMixin.ignore(FocalLoss)
 QuantizationMixin.ignore(L1Loss)
 QuantizationMixin.ignore(GIoULoss)
 QuantizationMixin.ignore(Dropout)
 
 from quantization.registered_ops import QuantizedLinear
+
+from evaluation.eval_dataset import extract_data
+from evaluation.eval_dataset import build_eval_loader
+from quantization.quantize_function import AimetTraceWrapper, aimet_forward_fn, prepare_batch, create_quant_sim, calibration_forward_pass, move_to_device_keep_structure
+from ssr.projects.mmdet3d_plugin.SSR.model import load_default_model
+
 
 warnings.filterwarnings("ignore")
 

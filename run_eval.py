@@ -29,6 +29,20 @@ import warnings
 from mmcv import DictAction
 from mmcv.runner import get_dist_info
 
+from mmdet.models.losses.focal_loss import FocalLoss
+from mmdet.models.losses.smooth_l1_loss import L1Loss
+from mmdet.models.losses.iou_loss import GIoULoss
+from mmcv.cnn.bricks.drop import Dropout
+
+from aimet_torch.v2.nn import QuantizationMixin
+
+QuantizationMixin.ignore(FocalLoss)
+QuantizationMixin.ignore(L1Loss)
+QuantizationMixin.ignore(GIoULoss)
+QuantizationMixin.ignore(Dropout)
+
+from quantization.registered_ops import QuantizedLinear
+
 from evaluation.eval_dataset import build_eval_loader
 from evaluation.eval_metrics import evaluate_model
 from ssr.projects.mmdet3d_plugin.SSR.model import load_default_model
