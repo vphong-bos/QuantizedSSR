@@ -220,7 +220,7 @@ def main():
             device=args.device,
             graph_optimization_level=args.graph_optimization_level,
             provider=args.provider,
-            encodings_path=args.encoding_path,
+            encoding_path=args.encoding_path,
             config=args.config,
         )
             
