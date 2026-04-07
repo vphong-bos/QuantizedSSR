@@ -120,7 +120,7 @@ class SpatialCrossAttention(BaseModule):
                      embed_dims=256,
                      num_levels=4),
                  bev_size=(100, 100),
-                 debug_save=True,
+                 debug_save=False,
                  debug_log_dir='logs',
                  debug_video_fps=10,
                  debug_video_format='mp4',
@@ -259,21 +259,21 @@ class SpatialCrossAttention(BaseModule):
         log_suffix = None
         combined_frames = None
         indices_dir = None
-        if self.debug_save:
-            if self._video_backend is None:
-                raise RuntimeError(
-                    "Video logging requires either OpenCV (cv2) or imageio; neither dependency is available.")
-            if not self._debug_dirs_ready:
-                (self.debug_log_dir / 'heatmaps').mkdir(parents=True, exist_ok=True)
-                (self.debug_log_dir / 'index_queries').mkdir(parents=True, exist_ok=True)
-                self._debug_dirs_ready = True
-            self._debug_iter += 1
-            log_suffix = f"{self._run_timestamp}_{self._run_timestamp_ms}_iter_{self._debug_iter:06d}"
-            combined_frames = {}
-            integrated_accumulators = {}
-            indices_dir = self.debug_log_dir / 'index_queries'
-        elif self._video_writers or self._combined_video_writers:
-            self.close_debug_writers()
+        # if self.debug_save:
+        #     if self._video_backend is None:
+        #         raise RuntimeError(
+        #             "Video logging requires either OpenCV (cv2) or imageio; neither dependency is available.")
+        #     if not self._debug_dirs_ready:
+        #         (self.debug_log_dir / 'heatmaps').mkdir(parents=True, exist_ok=True)
+        #         (self.debug_log_dir / 'index_queries').mkdir(parents=True, exist_ok=True)
+        #         self._debug_dirs_ready = True
+        #     self._debug_iter += 1
+        #     log_suffix = f"{self._run_timestamp}_{self._run_timestamp_ms}_iter_{self._debug_iter:06d}"
+        #     combined_frames = {}
+        #     integrated_accumulators = {}
+        #     indices_dir = self.debug_log_dir / 'index_queries'
+        # elif self._video_writers or self._combined_video_writers:
+        self.close_debug_writers()
 
         D = reference_points_cam.size(3)
         indexes = []
