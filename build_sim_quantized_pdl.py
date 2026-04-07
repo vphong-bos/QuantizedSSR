@@ -698,7 +698,6 @@ def main(args):
             input_names=["input"],
             output_names=["output"],
             opset_version=17,
-            dynamo=False,
             export_int32_bias=True,
             prequantize_constants=True
         )
