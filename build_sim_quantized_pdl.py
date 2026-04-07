@@ -660,32 +660,32 @@ def main(args):
     # for path, typ, err in bad_hits[:100]:
     #     print(f"{path} :: {typ} :: {err}")
 
-    if args.save_quant_checkpoint is not None:
-        quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
-        print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
+    # if args.save_quant_checkpoint is not None:
+    #     quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
+    #     print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
 
-    if not args.no_export:
-        export_dir = osp.join(args.work_dir, args.export_prefix)
-        os.makedirs(export_dir, exist_ok=True)
+    # if not args.no_export:
+    #     export_dir = osp.join(args.work_dir, args.export_prefix)
+    #     os.makedirs(export_dir, exist_ok=True)
 
-        print(f"Exporting AIMET artifacts to: {export_dir}")
-        try:
-            with debug_tensor_bool_mul():
-                sim.export(
-                    path=export_dir,
-                    filename_prefix=args.export_prefix,
-                    dummy_input=dummy_input,
-                )
-            print("AIMET export completed successfully.")
-        except RuntimeError as e:
-            err_msg = str(e)
+    #     print(f"Exporting AIMET artifacts to: {export_dir}")
+    #     try:
+    #         with debug_tensor_bool_mul():
+    #             sim.export(
+    #                 path=export_dir,
+    #                 filename_prefix=args.export_prefix,
+    #                 dummy_input=dummy_input,
+    #             )
+    #         print("AIMET export completed successfully.")
+    #     except RuntimeError as e:
+    #         err_msg = str(e)
 
-            if "We don't have an op for aten::mul" in err_msg and "Tensor, bool" in err_msg:
-                print("\n[WARN] AIMET export failed due to Tensor * bool during ONNX export.")
-                print("[WARN] The hook above should have printed the Python stack for the offending line.")
-                print("[WARN] Skipping sim.export() so the script can continue.")
-            else:
-                raise
+    #         if "We don't have an op for aten::mul" in err_msg and "Tensor, bool" in err_msg:
+    #             print("\n[WARN] AIMET export failed due to Tensor * bool during ONNX export.")
+    #             print("[WARN] The hook above should have printed the Python stack for the offending line.")
+    #             print("[WARN] Skipping sim.export() so the script can continue.")
+    #         else:
+    #             raise
 
     if args.export_onnx:
         export_dir = osp.join(args.work_dir, args.export_prefix)
