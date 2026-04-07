@@ -476,8 +476,8 @@ class SpatialCrossAttention(BaseModule):
         return 'mp4v'
 
     def _get_video_writer(self, cam_idx: int, batch_idx: int):
-        if not self.debug_save:
-            return None
+        # if not self.debug_save:
+        #     return None
         
         key = (cam_idx, batch_idx)
         writer = self._video_writers.get(key)
@@ -517,8 +517,8 @@ class SpatialCrossAttention(BaseModule):
 
         writer = self._get_video_writer(cam_idx, batch_idx)
 
-        if writer is None:
-            return
+        # if writer is None:
+        #     return
 
         if self._video_backend == 'cv2':
             if frame.shape[0] != self.bev_size[0] or frame.shape[1] != self.bev_size[1]:
@@ -529,8 +529,8 @@ class SpatialCrossAttention(BaseModule):
             writer.append_data(np.ascontiguousarray(frame))
 
     def _get_combined_writer(self, batch_idx: int, width: int, height: int):
-        if not self.debug_save:
-            return None     
+        # if not self.debug_save:
+        #     return None     
         
         writer = self._combined_video_writers.get(batch_idx)
         if writer is not None:
@@ -566,8 +566,8 @@ class SpatialCrossAttention(BaseModule):
         height, width = frame.shape[0], frame.shape[1]
         writer = self._get_combined_writer(batch_idx, width, height)
 
-        if writer is None:
-            return
+        # if writer is None:
+        #     return
         
         if self._video_backend == 'cv2':
             frame_bgr = np.ascontiguousarray(frame[:, :, ::-1])
@@ -579,8 +579,8 @@ class SpatialCrossAttention(BaseModule):
         return np.clip(accumulator, 0, 255).astype(np.uint8)
 
     def _get_integrated_writer(self, batch_idx: int):
-        if not self.debug_save:
-            return None
+        # if not self.debug_save:
+        #     return None
         
         writer = self._integrated_video_writers.get(batch_idx)
         if writer is not None:
@@ -617,8 +617,8 @@ class SpatialCrossAttention(BaseModule):
             frame = np.clip(frame, 0, 255).astype(np.uint8)
         writer = self._get_integrated_writer(batch_idx)
 
-        if writer is None:
-            return
+        # if writer is None:
+        #     return
         
         if self._video_backend == 'cv2':
             frame_bgr = np.ascontiguousarray(frame[:, :, ::-1])

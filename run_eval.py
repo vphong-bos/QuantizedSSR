@@ -224,9 +224,9 @@ def main():
             max_samples=args.max_samples,
         )
 
-        # if rank == 0:
-        #     print("======================================================")
-        #     print(dataset.evaluate(fp32_results, metric=args.eval))
+        if rank == 0:
+            print("======================================================")
+            print(dataset.evaluate(fp32_results, metric=args.eval))
 
     if args.quant_weights:
         quant_obj = load_quantized_model(
@@ -246,9 +246,9 @@ def main():
             max_samples=args.max_samples,
         )
 
-        # if rank == 0:
-        #     print("======================================================")
-        #     print(dataset.evaluate(quant_results, metric=args.eval))
+        if rank == 0:
+            print("======================================================")
+            print(dataset.evaluate(quant_results, metric=args.eval))
 
     if rank == 0 and fp32_results is not None and quant_results is not None:
         pcc, num_values = compute_pcc(fp32_results, quant_results)
