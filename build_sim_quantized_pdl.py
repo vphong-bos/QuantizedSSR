@@ -389,6 +389,10 @@ def main(args):
     model, _ = load_default_model(cfg, args.checkpoint, dataset, args.fuse_conv_bn, args.device)
     model = model.to(args.device).eval()
 
+    for i, layer in enumerate(model.pts_bbox_head.transformer.encoder.layers):
+        for j, attn in enumerate(layer.attentions):
+            print(i, j, type(attn), attn.__class__.__module__)
+
     import pickle
 
     def find_unpickleable(obj, prefix="root", seen=None):
