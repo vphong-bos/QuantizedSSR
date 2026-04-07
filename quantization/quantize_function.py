@@ -425,10 +425,11 @@ def load_quantized_model(
     print(f"[TORCH] Loading exported AIMET weights from: {quant_weights}")
     ckpt = torch.load(quant_weights, map_location="cpu")
 
-    if isinstance(ckpt, dict) and "state_dict" in ckpt:
-        state_dict = ckpt["state_dict"]
-    else:
-        state_dict = ckpt
+    state_dict = ckpt.model.state_dict()
+    # if isinstance(ckpt, dict) and "state_dict" in ckpt:
+    #     state_dict = ckpt["state_dict"]
+    # else:
+    #     state_dict = ckpt
 
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
     print(f"[TORCH] Missing keys: {len(missing)}")
