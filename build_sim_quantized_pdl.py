@@ -474,30 +474,28 @@ def main(args):
     # ]
 
     def get_skip_layer_names(model):
-        target_classes = {
-            "SpatialCrossAttention",
-            "MSDeformableAttention3D",
-        }
+        skip = []
 
-        skip_layer_names = []
         for name, module in model.named_modules():
-            if module.__class__.__name__ in target_classes:
-                skip_layer_names.append(name)
+            # skip only encoder attention 0 (contains GridSample)
+            if "transformer.encoder.layers" in name and "attentions.0" in name:
+                skip.append(name)
 
-        return skip_layer_names
+        return skip
+
 
     skip_layer_names = get_skip_layer_names(wrapped_model)
 
-    skip_layer_names.extend([
-        "model.pts_bbox_head.transformer.encoder.layers.0.attentions.1",
-        "model.pts_bbox_head.transformer.encoder.layers.0.attentions.1.deformable_attention",
+    # skip_layer_names.extend([
+    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.1",
+    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.1.deformable_attention",
 
-        "model.pts_bbox_head.transformer.encoder.layers.1.attentions.1",
-        "model.pts_bbox_head.transformer.encoder.layers.1.attentions.1.deformable_attention",
+    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.1",
+    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.1.deformable_attention",
 
-        "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1",
-        "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention",
-    ])
+    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1",
+    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention",
+    # ])
 
     # skip_layer_names = []
 
