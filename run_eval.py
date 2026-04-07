@@ -182,7 +182,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    cfg, dataset, data_loader = build_eval_loader(args.config_path)
+    cfg, dataset, data_loader = build_eval_loader(args.config)
 
     rank, _ = get_dist_info()
 
@@ -237,6 +237,7 @@ def main():
             provider=args.provider,
             encoding_path=args.encoding_path,
             config=args.config,
+            config_path=args.config_path,
             enable_bn_fold=args.enable_bn_fold,
         )
             
