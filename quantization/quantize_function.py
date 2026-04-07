@@ -480,7 +480,7 @@ def load_quantized_model(
     )
 
     print(f"[TORCH] Loading encodings from: {encoding_path}")
-    sim.set_and_freeze_param_encodings(encoding_path)
+    sim.load_encodings_to_sim(encoding_path)
 
     sim.model.to(device).eval()
 
