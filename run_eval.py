@@ -116,6 +116,7 @@ def parse_args():
     parser.add_argument("--config_path", help="test config file path")
     parser.add_argument("--fp32_weights", help="checkpoint file")
     parser.add_argument("--quant_weights", help="checkpoint file")
+    parser.add_argument("--encoding_path", default = None, help="(Optional) Encoding file")
     parser.add_argument(
         "--fuse-conv-bn",
         action="store_true",
@@ -218,6 +219,7 @@ def main():
             device=args.device,
             graph_optimization_level=args.graph_optimization_level,
             provider=args.provider,
+            encodings_path=args.encoding_path
         )
 
         print("Evaluating quantized model...")

@@ -312,6 +312,7 @@ def load_quantized_model(
     device,
     provider="CPUExecutionProvider",
     graph_optimization_level="basic",
+    encodings_path=None,   # <-- new (optional)
 ):
     print("Loading quantized model...")
 
@@ -373,6 +374,7 @@ def load_quantized_model(
             "output_names": output_names,
             "model": None,
             "graph_optimization_level": graph_optimization_level,
+            "encodings_path": encodings_path,  # optional, usually None for ONNX
         }
 
     print("Detected AIMET checkpoint")
@@ -380,6 +382,10 @@ def load_quantized_model(
     sim = quantsim.load_checkpoint(quant_weights)
     sim.model.to(device).eval()
 
+    if encodings_path is not None:
+        print(f"[TORCH] Loading encodings from: {encodings_path}")
+        sim.load_encodings(encodings_path)
+        
     return {
         "backend": "torch",
         "model": sim.model,
@@ -387,4 +393,5 @@ def load_quantized_model(
         "input_name": None,
         "output_names": None,
         "graph_optimization_level": None,
+        "encodings_path": encodings_path,
     }
