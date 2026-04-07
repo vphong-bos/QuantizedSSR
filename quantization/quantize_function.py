@@ -307,6 +307,27 @@ def create_quant_sim(
 
     return sim
 
+skip_layer_names = [
+    "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0",
+    "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.dropout",
+    "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.sampling_offsets",
+    "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.attention_weights",
+    "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.value_proj",
+    "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.output_proj",
+    "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0",
+    "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.dropout",
+    "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.sampling_offsets",
+    "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.attention_weights",
+    "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.value_proj",
+    "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.output_proj",
+    "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0",
+    "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.dropout",
+    "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.sampling_offsets",
+    "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.attention_weights",
+    "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.value_proj",
+    "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.output_proj",
+]
+
 def load_quantized_model(
     quant_weights,
     device,
@@ -460,13 +481,6 @@ def load_quantized_model(
         raise ValueError(f"Unexpected real_img shape: {real_img.shape}")
 
     dummy_input = torch.zeros_like(real_img)
-
-    # Keep this aligned with your PTQ build script skip list
-    skip_layer_names = [
-        "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0",
-        "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0",
-        "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0",
-    ]
 
     sim = create_quant_sim(
         model=wrapped_model,
