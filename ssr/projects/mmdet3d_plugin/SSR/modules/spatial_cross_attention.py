@@ -476,6 +476,9 @@ class SpatialCrossAttention(BaseModule):
         return 'mp4v'
 
     def _get_video_writer(self, cam_idx: int, batch_idx: int):
+        if not self.debug_save:
+            return None
+        
         key = (cam_idx, batch_idx)
         writer = self._video_writers.get(key)
         if writer is not None:
@@ -507,6 +510,9 @@ class SpatialCrossAttention(BaseModule):
         return writer
 
     def _append_heatmap_frame(self, cam_idx: int, batch_idx: int, frame: np.ndarray) -> None:
+        if writer is None:
+            return
+        
         if frame.ndim == 2:
             frame = np.stack([frame] * 3, axis=-1)
         if frame.dtype != np.uint8:
@@ -523,6 +529,9 @@ class SpatialCrossAttention(BaseModule):
             writer.append_data(np.ascontiguousarray(frame))
 
     def _get_combined_writer(self, batch_idx: int, width: int, height: int):
+        if not self.debug_save:
+            return None     
+        
         writer = self._combined_video_writers.get(batch_idx)
         if writer is not None:
             return writer
@@ -550,6 +559,9 @@ class SpatialCrossAttention(BaseModule):
         return writer
 
     def _append_combined_frame(self, batch_idx: int, frame: np.ndarray) -> None:
+        if writer is None:
+            return
+        
         if frame.ndim == 2:
             frame = np.stack([frame] * 3, axis=-1)
         if frame.dtype != np.uint8:
@@ -566,6 +578,9 @@ class SpatialCrossAttention(BaseModule):
         return np.clip(accumulator, 0, 255).astype(np.uint8)
 
     def _get_integrated_writer(self, batch_idx: int):
+        if not self.debug_save:
+            return None
+        
         writer = self._integrated_video_writers.get(batch_idx)
         if writer is not None:
             return writer
@@ -595,6 +610,9 @@ class SpatialCrossAttention(BaseModule):
         return writer
 
     def _append_integrated_frame(self, batch_idx: int, frame: np.ndarray) -> None:
+        if writer is None:
+            return
+            
         if frame.ndim == 2:
             frame = np.stack([frame] * 3, axis=-1)
         if frame.dtype != np.uint8:

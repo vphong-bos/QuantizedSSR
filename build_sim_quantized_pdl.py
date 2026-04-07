@@ -518,6 +518,12 @@ def main(args):
     calib_time = time.time() - calib_start
     print(f"Calibration finished in {calib_time:.2f} s")
 
+    for m in sim.model.modules():
+        if hasattr(m, "debug_save"):
+            m.debug_save = False
+        if hasattr(m, "close_debug_writers"):
+            m.close_debug_writers()
+
     # import cv2
     # import pickle
     # from collections.abc import Mapping, Sequence
