@@ -312,9 +312,8 @@ def load_quantized_model(
     device,
     provider="CPUExecutionProvider",
     graph_optimization_level="basic",
-    encodings_path=None,
+    encoding_path=None,
     config=None,
-    checkpoint=None,
     fuse_conv_bn=False,
     quant_scheme="tf_enhanced",
     default_output_bw=8,
@@ -322,6 +321,7 @@ def load_quantized_model(
     config_path=None,
 ):
     print("Loading quantized model...")
+    checkpoint=quant_weights,
 
     ext = os.path.splitext(quant_weights)[1].lower()
 
@@ -381,15 +381,15 @@ def load_quantized_model(
             "model": None,
             "sim": None,
             "graph_optimization_level": graph_optimization_level,
-            "encodings_path": encodings_path,
+            "encoding_path": encoding_path,
         }
 
     # Torch / AIMET path
     print("Detected torch/AIMET artifact")
 
     # Case 1: real AIMET checkpoint created by quantsim.save_checkpoint(...)
-    if encodings_path is None:
-        print("[TORCH] No encodings_path provided, trying AIMET checkpoint load...")
+    if encoding_path is None:
+        print("[TORCH] No encoding_path provided, trying AIMET checkpoint load...")
         sim = quantsim.load_checkpoint(quant_weights)
         sim.model.to(device).eval()
 
@@ -401,18 +401,21 @@ def load_quantized_model(
             "input_name": None,
             "output_names": None,
             "graph_optimization_level": None,
-            "encodings_path": None,
+            "encoding_path": None,
         }
 
     # Case 2: plain model checkpoint + encodings file
-    print(f"[TORCH] encodings_path provided: {encodings_path}")
+    print(f"[TORCH] encoding_path provided: {encoding_path}")
     print("[TORCH] Rebuilding FP32 model and applying encodings...")
 
     if config is None or checkpoint is None:
         raise ValueError(
-            "When encodings_path is provided, you must also provide config and checkpoint "
+            "When encoding_path is provided, you must also provide config and checkpoint "
             "so the FP32 model can be rebuilt before applying encodings."
         )
+
+    from evaluation.eval_dataset import build_eval_loader
+    from ssr.projects.mmdet3d_plugin.SSR.model import load_default_model
 
     # Rebuild dataset/loader exactly like PTQ script
     cfg, dataset, data_loader = build_eval_loader(config)
@@ -456,8 +459,8 @@ def load_quantized_model(
         skip_layer_names=skip_layer_names,
     )
 
-    print(f"[TORCH] Loading encodings from: {encodings_path}")
-    sim.load_encodings(encodings_path)
+    print(f"[TORCH] Loading encodings from: {encoding_path}")
+    sim.set_and_freeze_param_encodings(encoding_path)
 
     sim.model.to(device).eval()
 
@@ -469,5 +472,5 @@ def load_quantized_model(
         "input_name": None,
         "output_names": None,
         "graph_optimization_level": None,
-        "encodings_path": encodings_path,
+        "encoding_path": encoding_path,
     }
