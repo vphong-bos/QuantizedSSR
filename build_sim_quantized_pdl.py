@@ -217,6 +217,49 @@ def maybe_run_seq_mse(
 
     print("Sequential MSE finished.")
 
+import traceback
+from contextlib import contextmanager
+
+
+@contextmanager
+def debug_tensor_bool_mul():
+    """
+    Temporarily hook torch.mul and Tensor.__mul__ to print a stack trace
+    whenever Tensor * bool happens. Useful for finding ONNX export failures
+    like aten::mul(Tensor, bool).
+    """
+    orig_torch_mul = torch.mul
+    orig_tensor_mul = torch.Tensor.__mul__
+
+    def _debug_torch_mul(a, b, *args, **kwargs):
+        a_is_tensor = isinstance(a, torch.Tensor)
+        b_is_tensor = isinstance(b, torch.Tensor)
+
+        if (a_is_tensor and isinstance(b, bool)) or (b_is_tensor and isinstance(a, bool)):
+            print("\n[FOUND torch.mul Tensor-bool]")
+            print("lhs:", type(a), getattr(a, "dtype", None))
+            print("rhs:", type(b), getattr(b, "dtype", None) if b_is_tensor else type(b))
+            traceback.print_stack(limit=20)
+
+        return orig_torch_mul(a, b, *args, **kwargs)
+
+    def _debug_tensor_mul(self, other):
+        if isinstance(other, bool):
+            print("\n[FOUND Tensor.__mul__ bool]")
+            print("self dtype:", self.dtype)
+            print("other:", other, type(other))
+            traceback.print_stack(limit=20)
+        return orig_tensor_mul(self, other)
+
+    torch.mul = _debug_torch_mul
+    torch.Tensor.__mul__ = _debug_tensor_mul
+
+    try:
+        yield
+    finally:
+        torch.mul = orig_torch_mul
+        torch.Tensor.__mul__ = orig_tensor_mul
+
 
 # def maybe_run_quant_analyzer(
 #     wrapped_model: AimetTraceWrapper,
@@ -621,16 +664,28 @@ def main(args):
     #     quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
     #     print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
 
-    # if not args.no_export:
-    #     export_dir = osp.join(args.work_dir, args.export_prefix)
-    #     os.makedirs(export_dir, exist_ok=True)
+    if not args.no_export:
+        export_dir = osp.join(args.work_dir, args.export_prefix)
+        os.makedirs(export_dir, exist_ok=True)
 
-    #     print(f"Exporting AIMET artifacts to: {export_dir}")
-    #     sim.export(
-    #         path=export_dir,
-    #         filename_prefix=args.export_prefix,
-    #         dummy_input=dummy_input,
-    #     )
+        print(f"Exporting AIMET artifacts to: {export_dir}")
+        try:
+            with debug_tensor_bool_mul():
+                sim.export(
+                    path=export_dir,
+                    filename_prefix=args.export_prefix,
+                    dummy_input=dummy_input,
+                )
+            print("AIMET export completed successfully.")
+        except RuntimeError as e:
+            err_msg = str(e)
+
+            if "We don't have an op for aten::mul" in err_msg and "Tensor, bool" in err_msg:
+                print("\n[WARN] AIMET export failed due to Tensor * bool during ONNX export.")
+                print("[WARN] The hook above should have printed the Python stack for the offending line.")
+                print("[WARN] Skipping sim.export() so the script can continue.")
+            else:
+                raise
 
     if args.export_onnx:
         export_dir = osp.join(args.work_dir, args.export_prefix)
