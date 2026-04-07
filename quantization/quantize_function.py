@@ -321,7 +321,6 @@ def load_quantized_model(
     config_path=None,
 ):
     print("Loading quantized model...")
-    checkpoint=quant_weights,
 
     ext = os.path.splitext(quant_weights)[1].lower()
 
@@ -408,7 +407,7 @@ def load_quantized_model(
     print(f"[TORCH] encoding_path provided: {encoding_path}")
     print("[TORCH] Rebuilding FP32 model and applying encodings...")
 
-    if config is None or checkpoint is None:
+    if config is None:
         raise ValueError(
             "When encoding_path is provided, you must also provide config and checkpoint "
             "so the FP32 model can be rebuilt before applying encodings."
@@ -420,7 +419,7 @@ def load_quantized_model(
     # Rebuild dataset/loader exactly like PTQ script
     cfg, dataset, data_loader = build_eval_loader(config)
 
-    model, _ = load_default_model(cfg, checkpoint, dataset, fuse_conv_bn, device)
+    model, _ = load_default_model(cfg, quant_weights, dataset, fuse_conv_bn, device)
     model = model.to(device).eval()
 
     first_batch = next(iter(data_loader))
