@@ -137,6 +137,7 @@ def parse_args():
         action="store_true",
         help="Whether to fuse conv and bn, this will slightly increase the inference speed",
     )
+    parser.add_argument("--enable_bn_fold", action="store_true", help="apply AIMET BN fold")
     parser.add_argument(
         "--eval",
         type=str,
@@ -236,6 +237,7 @@ def main():
             provider=args.provider,
             encoding_path=args.encoding_path,
             config=args.config,
+            enable_bn_fold=args.enable_bn_fold,
         )
             
 

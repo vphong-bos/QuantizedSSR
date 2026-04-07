@@ -473,6 +473,18 @@ def load_quantized_model(
     prepared_batch = move_to_device_keep_structure(first_batch, torch.device(device))
 
     wrapped_model = AimetTraceWrapper(model=model).to(device).eval()
+    wrapped_model.set_batch(prepared_batch)
+
+    real_img = prepared_batch["img"][0]
+    if not torch.is_tensor(real_img):
+        raise TypeError(f"Expected tensor, got {type(real_img)}")
+
+    if real_img.ndim == 4:
+        real_img = real_img.unsqueeze(0)
+    elif real_img.ndim != 5:
+        raise ValueError(f"Unexpected real_img shape: {real_img.shape}")
+
+    dummy_input = torch.zeros_like(real_img)
 
     def maybe_run_bn_fold(wrapped_model: AimetTraceWrapper, dummy_input: torch.Tensor, enabled: bool) -> None:
         if not enabled:
@@ -494,18 +506,6 @@ def load_quantized_model(
 
     maybe_run_bn_fold(wrapped_model, dummy_input, enable_bn_fold)
 
-    wrapped_model.set_batch(prepared_batch)
-
-    real_img = prepared_batch["img"][0]
-    if not torch.is_tensor(real_img):
-        raise TypeError(f"Expected tensor, got {type(real_img)}")
-
-    if real_img.ndim == 4:
-        real_img = real_img.unsqueeze(0)
-    elif real_img.ndim != 5:
-        raise ValueError(f"Unexpected real_img shape: {real_img.shape}")
-
-    dummy_input = torch.zeros_like(real_img)
 
     sim = create_quant_sim(
         model=wrapped_model,
