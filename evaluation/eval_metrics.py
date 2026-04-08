@@ -7,106 +7,207 @@ from evaluation.eval_dataset import extract_data
 warnings.filterwarnings("ignore")
 
 import numpy as np
-import torch
 
-def convert_onnx_outputs_to_result(outputs):
+from ssr.projects.mmdet3d_plugin.SSR.planner.metric_stp3 import PlanningMetric
+
+
+_PLANNING_METRIC = None
+
+
+def compute_planner_metric_standalone(
+    pred_ego_fut_trajs,
+    gt_ego_fut_trajs,
+    gt_agent_boxes,
+    gt_agent_feats,
+    gt_map_boxes,
+    gt_map_labels,
+    fut_valid_flag,
+):
     """
-    Convert raw ONNX outputs to the same structure returned by:
-        model(return_loss=False, rescale=True, **data)
-
-    Assumes:
-      outputs[1] -> ego_fut_preds, shape [B, 3, 6, 2]
-      outputs[2] -> ego_fut_cmd logits or command scores
+    Copied from SSR.compute_planner_metric_stp3(), but standalone.
     """
-    if not isinstance(outputs, (list, tuple)):
-        raise TypeError(f"Expected list/tuple from ONNX session.run, got {type(outputs)}")
+    global _PLANNING_METRIC
+    if _PLANNING_METRIC is None:
+        _PLANNING_METRIC = PlanningMetric()
 
-    if len(outputs) < 3:
-        raise ValueError(f"Expected at least 3 ONNX outputs, got {len(outputs)}")
+    metric_dict = {
+        "plan_L2_1s": 0,
+        "plan_L2_2s": 0,
+        "plan_L2_3s": 0,
+        "plan_obj_col_1s": 0,
+        "plan_obj_col_2s": 0,
+        "plan_obj_col_3s": 0,
+        "plan_obj_box_col_1s": 0,
+        "plan_obj_box_col_2s": 0,
+        "plan_obj_box_col_3s": 0,
+    }
+    metric_dict["fut_valid_flag"] = fut_valid_flag
 
-    ego_fut_preds = outputs[1]
-    ego_fut_cmd_raw = outputs[2]
+    future_second = 3
+    assert pred_ego_fut_trajs.shape[0] == 1, "only support bs=1"
 
-    if not isinstance(ego_fut_preds, np.ndarray):
-        raise TypeError(f"outputs[1] must be ndarray, got {type(ego_fut_preds)}")
-    if ego_fut_preds.ndim != 4 or ego_fut_preds.shape[-2:] != (6, 2):
-        raise ValueError(f"Unexpected ego_fut_preds shape: {ego_fut_preds.shape}")
+    segmentation, pedestrian, segmentation_plus = _PLANNING_METRIC.get_label(
+        gt_agent_boxes, gt_agent_feats, gt_map_boxes, gt_map_labels
+    )
+    occupancy = torch.logical_or(segmentation, pedestrian)
 
-    B = ego_fut_preds.shape[0]
-    results = []
+    for i in range(future_second):
+        if fut_valid_flag:
+            cur_time = (i + 1) * 2
 
-    for b in range(B):
-        preds_b = torch.from_numpy(ego_fut_preds[b]).float()  # [3, 6, 2]
+            traj_L2 = _PLANNING_METRIC.compute_L2(
+                pred_ego_fut_trajs[0, :cur_time].detach().to(gt_ego_fut_trajs.device),
+                gt_ego_fut_trajs[0, :cur_time],
+            )
+            traj_L2_stp3 = _PLANNING_METRIC.compute_L2_stp3(
+                pred_ego_fut_trajs[0, :cur_time].detach().to(gt_ego_fut_trajs.device),
+                gt_ego_fut_trajs[0, :cur_time],
+            )
+            obj_coll, obj_box_coll = _PLANNING_METRIC.evaluate_coll(
+                pred_ego_fut_trajs[:, :cur_time].detach(),
+                gt_ego_fut_trajs[:, :cur_time],
+                occupancy,
+            )
 
-        cmd_b = np.asarray(ego_fut_cmd_raw[b], dtype=np.float32)
+            metric_dict[f"plan_L2_{i+1}s"] = traj_L2
+            metric_dict[f"plan_obj_col_{i+1}s"] = obj_coll.mean().item()
+            metric_dict[f"plan_obj_box_col_{i+1}s"] = obj_box_coll.mean().item()
 
-        # Make command one-hot tensor shaped like [[[ [c0,c1,c2] ]]]
-        # Adjust this if your exported command tensor has a different meaning.
-        flat = cmd_b.reshape(-1)
-        if flat.size < 3:
-            raise ValueError(f"Command output too small to infer 3-way command: shape={cmd_b.shape}")
+            metric_dict[f"plan_L2_stp3_{i+1}s"] = traj_L2_stp3
+            metric_dict[f"plan_obj_col_stp3_{i+1}s"] = obj_coll[-1].item()
+            metric_dict[f"plan_obj_box_col_stp3_{i+1}s"] = obj_box_coll[-1].item()
+        else:
+            metric_dict[f"plan_L2_{i+1}s"] = 0.0
+            metric_dict[f"plan_obj_col_{i+1}s"] = 0.0
+            metric_dict[f"plan_obj_box_col_{i+1}s"] = 0.0
+            metric_dict[f"plan_L2_stp3_{i+1}s"] = 0.0
 
-        cmd_idx = int(np.argmax(flat[:3]))
-        cmd_onehot = np.zeros((1, 1, 1, 3), dtype=np.float32)
-        cmd_onehot[0, 0, 0, cmd_idx] = 1.0
+    return metric_dict
 
-        results.append({
-            "pts_bbox": {
-                "ego_fut_preds": preds_b,
-                "ego_fut_cmd": torch.from_numpy(cmd_onehot),
-            }
+def run_onnx_ssr(model_obj, data):
+    session = model_obj["session"]
+    input_name = model_obj["input_name"]
+
+    if input_name is None:
+        raise ValueError(
+            "ONNX model has no input name. "
+            "The exported wrapped graph likely does not depend on the formal input tensor."
+        )
+
+    img = data["img"]
+    if isinstance(img, list):
+        assert len(img) == 1, f"Unexpected img list length: {len(img)}"
+        img = img[0]
+
+    if not torch.is_tensor(img):
+        raise TypeError(f"Expected torch.Tensor for ONNX input, got {type(img)}")
+
+    img_np = img.detach().cpu().numpy()
+
+    if img_np.ndim == 6:
+        if img_np.shape[1] == 1:
+            img_np = img_np[:, 0]
+        else:
+            raise ValueError(f"Unexpected 6D input shape for ONNX: {img_np.shape}")
+
+    if img_np.ndim == 5:
+        b, n, c, h, w = img_np.shape
+        img_np = img_np.reshape(b * n, c, h, w)
+
+    if img_np.ndim != 4:
+        raise ValueError(f"ONNX expects rank-4 input, got shape {img_np.shape}")
+
+    outputs = session.run(None, {input_name: img_np})
+    output_names = [o.name for o in session.get_outputs()]
+
+    outs = {
+        name: torch.from_numpy(arr)
+        for name, arr in zip(output_names, outputs)
+    }
+
+    # Recover semantic tensors by shape if export names are generic
+    if "ego_fut_preds" not in outs:
+        for k, v in outs.items():
+            if v.ndim == 4 and tuple(v.shape[-3:]) == (3, 6, 2):
+                outs["ego_fut_preds"] = v
+                break
+
+    if "bev_embed" not in outs:
+        for k, v in outs.items():
+            if v.ndim == 3 and v.shape[-1] == 256:
+                outs["bev_embed"] = v
+                break
+
+    if "ego_fut_preds" not in outs:
+        raise KeyError(f"Could not find ego_fut_preds in ONNX outputs: {list(outs.keys())}")
+
+    return outs
+
+def build_ssr_result_from_onnx_outs(outs, data):
+    ego_fut_cmd = data["ego_fut_cmd"]
+    ego_fut_trajs = data["ego_fut_trajs"]
+    fut_valid_flag = data["fut_valid_flag"]
+    gt_bboxes_3d = data["gt_bboxes_3d"]
+    map_gt_bboxes_3d = data["map_gt_bboxes_3d"]
+    map_gt_labels_3d = data["map_gt_labels_3d"]
+    gt_attr_labels = data["gt_attr_labels"]
+
+    bbox_results = []
+    for i in range(len(outs["ego_fut_preds"])):
+        bbox_results.append({
+            "ego_fut_preds": outs["ego_fut_preds"][i].cpu(),
+            "ego_fut_cmd": ego_fut_cmd.cpu(),
         })
 
-    return results
+    assert len(bbox_results) == 1, "only support batch_size=1 now"
 
+    with torch.no_grad():
+        gt_bbox = gt_bboxes_3d[0][0]
+        gt_map_bbox = map_gt_bboxes_3d[0]
+        gt_map_label = map_gt_labels_3d[0].to("cpu")
+        gt_attr_label = gt_attr_labels[0][0].to("cpu")
+        fut_valid = bool(fut_valid_flag[0])
+
+        ego_fut_preds = bbox_results[0]["ego_fut_preds"]
+        gt_ego_fut_trajs = ego_fut_trajs[0, 0]
+        cmd = ego_fut_cmd[0, 0, 0]
+        cmd_idx = torch.nonzero(cmd)[0, 0]
+
+        ego_fut_pred = ego_fut_preds[cmd_idx]
+        ego_fut_pred = ego_fut_pred.cumsum(dim=-2)
+        gt_ego_fut_trajs = gt_ego_fut_trajs.cumsum(dim=-2)
+
+        metric_dict = compute_planner_metric_standalone(
+            pred_ego_fut_trajs=ego_fut_pred[None],
+            gt_ego_fut_trajs=gt_ego_fut_trajs[None],
+            gt_agent_boxes=gt_bbox,
+            gt_agent_feats=gt_attr_label.unsqueeze(0),
+            gt_map_boxes=gt_map_bbox,
+            gt_map_labels=gt_map_label,
+            fut_valid_flag=fut_valid,
+        )
+
+    result = []
+    for pts_bbox in bbox_results:
+        result.append({
+            "pts_bbox": pts_bbox,
+            "metric_results": metric_dict,
+        })
+
+    return result
 
 def get_model_result(model_obj, data):
     backend = model_obj["backend"]
 
     if backend == "torch":
         model = model_obj["model"]
-
         with torch.no_grad():
             result = model(return_loss=False, rescale=True, **data)
-
         return result
 
     elif backend == "onnx":
-        session = model_obj["session"]
-        input_name = model_obj["input_name"]
-
-        if input_name is None:
-            raise ValueError(
-                "ONNX model has no input name. "
-                "The exported wrapped graph likely does not depend on the formal input tensor."
-            )
-
-        img = data["img"]
-        if isinstance(img, list):
-            assert len(img) == 1, f"Unexpected img list length: {len(img)}"
-            img = img[0]
-
-        if not torch.is_tensor(img):
-            raise TypeError(f"Expected torch.Tensor for ONNX input, got {type(img)}")
-
-        img_np = img.detach().cpu().numpy()
-
-        # adapt wrapped-model export input shape
-        if img_np.ndim == 6:
-            if img_np.shape[1] == 1:
-                img_np = img_np[:, 0]
-            else:
-                raise ValueError(f"Unexpected 6D input shape for ONNX: {img_np.shape}")
-
-        if img_np.ndim == 5:
-            b, n, c, h, w = img_np.shape
-            img_np = img_np.reshape(b * n, c, h, w)
-
-        if img_np.ndim != 4:
-            raise ValueError(f"ONNX expects rank-4 input, got shape {img_np.shape}")
-
-        outputs = session.run(None, {input_name: img_np})
-        result = convert_onnx_outputs_to_result(outputs)
+        outs = run_onnx_ssr(model_obj, data)
+        result = build_ssr_result_from_onnx_outs(outs, data)
         return result
 
     raise ValueError(f"Unsupported backend: {backend}")
