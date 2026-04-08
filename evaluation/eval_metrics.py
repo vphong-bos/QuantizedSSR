@@ -143,10 +143,17 @@ def run_onnx_ssr(model_obj, data):
 
     return outs
 
+def unwrap_single(x, name="value"):
+    while isinstance(x, list):
+        if len(x) != 1:
+            raise ValueError(f"{name} expected single-item list nesting, got len={len(x)}")
+        x = x[0]
+    return x
+
 def build_ssr_result_from_onnx_outs(outs, data):
-    ego_fut_cmd = data["ego_fut_cmd"]
-    ego_fut_trajs = data["ego_fut_trajs"]
-    fut_valid_flag = data["fut_valid_flag"]
+    ego_fut_cmd = unwrap_single(data["ego_fut_cmd"], "ego_fut_cmd")
+    ego_fut_trajs = unwrap_single(data["ego_fut_trajs"], "ego_fut_trajs")
+    fut_valid_flag = unwrap_single(data["fut_valid_flag"], "fut_valid_flag")
     gt_bboxes_3d = data["gt_bboxes_3d"]
     map_gt_bboxes_3d = data["map_gt_bboxes_3d"]
     map_gt_labels_3d = data["map_gt_labels_3d"]
@@ -155,8 +162,8 @@ def build_ssr_result_from_onnx_outs(outs, data):
     bbox_results = []
     for i in range(len(outs["ego_fut_preds"])):
         bbox_results.append({
-            "ego_fut_preds": outs["ego_fut_preds"][i],
-            "ego_fut_cmd": ego_fut_cmd,
+            "ego_fut_preds": outs["ego_fut_preds"][i].cpu(),
+            "ego_fut_cmd": ego_fut_cmd.cpu(),
         })
 
     assert len(bbox_results) == 1, "only support batch_size=1 now"
@@ -187,14 +194,10 @@ def build_ssr_result_from_onnx_outs(outs, data):
             fut_valid_flag=fut_valid,
         )
 
-    result = []
-    for pts_bbox in bbox_results:
-        result.append({
-            "pts_bbox": pts_bbox,
-            "metric_results": metric_dict,
-        })
-
-    return result
+    return [{
+        "pts_bbox": bbox_results[0],
+        "metric_results": metric_dict,
+    }]
 
 def get_model_result(model_obj, data):
     backend = model_obj["backend"]
