@@ -354,8 +354,6 @@ def load_quantized_model(
             graph_optimization_level
         )
 
-        providers = ["CPUExecutionProvider"]
-
         def _unnormalize(coord, size, align_corners):
             if align_corners:
                 return ((coord + 1.0) * (size - 1)) / 2.0
@@ -424,7 +422,7 @@ def load_quantized_model(
         session = ort.InferenceSession(
             quant_weights,
             sess_options=so,
-            providers=providers,
+            providers=provider,
         )
 
         inputs = session.get_inputs()

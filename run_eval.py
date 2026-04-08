@@ -247,6 +247,7 @@ def main():
             model_obj=quant_obj,
             data_loader=data_loader,
             max_samples=args.max_samples,
+            device=args.device
         )
 
         print(quant_results)

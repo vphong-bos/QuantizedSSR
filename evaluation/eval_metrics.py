@@ -1,6 +1,7 @@
 import mmcv
 import torch
 import warnings
+import onnxruntime as ort
 
 from evaluation.eval_dataset import extract_data
 
@@ -84,9 +85,12 @@ def compute_planner_metric_standalone(
 
     return metric_dict
 
+
 def run_onnx_ssr(model_obj, data):
     session = model_obj["session"]
     input_name = model_obj["input_name"]
+    device = model_obj.get("device", "cpu")
+    use_iobinding = model_obj.get("use_iobinding", True)
 
     if input_name is None:
         raise ValueError(
@@ -102,30 +106,67 @@ def run_onnx_ssr(model_obj, data):
     if not torch.is_tensor(img):
         raise TypeError(f"Expected torch.Tensor for ONNX input, got {type(img)}")
 
-    img_np = img.detach().cpu().numpy()
-
-    if img_np.ndim == 6:
-        if img_np.shape[1] == 1:
-            img_np = img_np[:, 0]
+    if img.ndim == 6:
+        if img.shape[1] == 1:
+            img = img[:, 0]
         else:
-            raise ValueError(f"Unexpected 6D input shape for ONNX: {img_np.shape}")
+            raise ValueError(f"Unexpected 6D input shape for ONNX: {tuple(img.shape)}")
 
-    if img_np.ndim == 5:
-        b, n, c, h, w = img_np.shape
-        img_np = img_np.reshape(b * n, c, h, w)
+    if img.ndim == 5:
+        b, n, c, h, w = img.shape
+        img = img.reshape(b * n, c, h, w)
 
-    if img_np.ndim != 4:
-        raise ValueError(f"ONNX expects rank-4 input, got shape {img_np.shape}")
+    if img.ndim != 4:
+        raise ValueError(f"ONNX expects rank-4 input, got shape {tuple(img.shape)}")
 
-    outputs = session.run(None, {input_name: img_np})
+    img = img.contiguous().float()
     output_names = [o.name for o in session.get_outputs()]
 
-    outs = {
-        name: torch.from_numpy(arr)
-        for name, arr in zip(output_names, outputs)
-    }
+    providers = session.get_providers()
+    can_use_cuda = (
+        isinstance(device, str)
+        and device.startswith("cuda")
+        and torch.cuda.is_available()
+        and "CUDAExecutionProvider" in providers
+        and use_iobinding
+    )
 
-    # Recover semantic tensors by shape if export names are generic
+    if can_use_cuda:
+        cuda_device_id = torch.device(device).index
+        if cuda_device_id is None:
+            cuda_device_id = torch.cuda.current_device()
+
+        img = img.to(device, non_blocking=True)
+
+        io_binding = session.io_binding()
+        io_binding.bind_input(
+            name=input_name,
+            device_type="cuda",
+            device_id=cuda_device_id,
+            element_type=np.float32,
+            shape=tuple(img.shape),
+            buffer_ptr=img.data_ptr(),
+        )
+
+        for out_name in output_names:
+            io_binding.bind_output(out_name, "cuda", cuda_device_id)
+
+        session.run_with_iobinding(io_binding)
+        ort_outputs = io_binding.copy_outputs_to_cpu()
+
+        outs = {
+            name: torch.from_numpy(arr)
+            for name, arr in zip(output_names, ort_outputs)
+        }
+    else:
+        img_np = img.detach().cpu().numpy().astype(np.float32, copy=False)
+        outputs = session.run(None, {input_name: img_np})
+
+        outs = {
+            name: torch.from_numpy(arr)
+            for name, arr in zip(output_names, outputs)
+        }
+
     if "ego_fut_preds" not in outs:
         for k, v in outs.items():
             if v.ndim == 4 and tuple(v.shape[-3:]) == (3, 6, 2):
@@ -143,12 +184,14 @@ def run_onnx_ssr(model_obj, data):
 
     return outs
 
+
 def unwrap_single(x, name="value"):
     while isinstance(x, list):
         if len(x) != 1:
             raise ValueError(f"{name} expected single-item list nesting, got len={len(x)}")
         x = x[0]
     return x
+
 
 def build_ssr_result_from_onnx_outs(outs, data):
     ego_fut_cmd = unwrap_single(data["ego_fut_cmd"], "ego_fut_cmd")
@@ -199,6 +242,7 @@ def build_ssr_result_from_onnx_outs(outs, data):
         "metric_results": metric_dict,
     }]
 
+
 def get_model_result(model_obj, data):
     backend = model_obj["backend"]
 
@@ -214,6 +258,7 @@ def get_model_result(model_obj, data):
         return result
 
     raise ValueError(f"Unsupported backend: {backend}")
+
 
 def maybe_dump_heatmaps(model_obj):
     if model_obj["backend"] != "torch":
@@ -291,15 +336,41 @@ def maybe_dump_heatmaps(model_obj):
         plt.close(fig)
 
 
+def move_data_to_device(data, device):
+    if torch.is_tensor(data):
+        return data.to(device, non_blocking=True)
+
+    if isinstance(data, dict):
+        return {k: move_data_to_device(v, device) for k, v in data.items()}
+
+    if isinstance(data, list):
+        return [move_data_to_device(v, device) for v in data]
+
+    if isinstance(data, tuple):
+        return tuple(move_data_to_device(v, device) for v in data)
+
+    return data
+
+
 def evaluate_model(
     model_obj,
     data_loader,
     max_samples=20,
+    device=None,
 ):
+    if device is None:
+        if isinstance(model_obj, dict):
+            device = model_obj.get("device", "cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if isinstance(device, torch.device):
+        device = str(device)
+
     if isinstance(model_obj, dict):
         backend = model_obj.get("backend", "torch")
         model = model_obj.get("model", None)
-        normalized_model_obj = model_obj
+        normalized_model_obj = dict(model_obj)
     else:
         backend = getattr(model_obj, "backend", "torch")
         model = model_obj
@@ -308,7 +379,10 @@ def evaluate_model(
             "model": model,
         }
 
+    normalized_model_obj["device"] = device
+
     if backend == "torch" and model is not None:
+        model.to(device)
         model.eval()
 
     results = []
@@ -321,6 +395,10 @@ def evaluate_model(
                 break
 
             data = extract_data(data)
+
+            if backend in {"torch", "onnx"}:
+                data = move_data_to_device(data, device)
+
             result = get_model_result(normalized_model_obj, data)
 
             results.extend(result)
@@ -332,5 +410,5 @@ def evaluate_model(
     except KeyboardInterrupt:
         print("Keyboard interrupt, exiting...")
 
-    maybe_dump_heatmaps(normalized_model_obj)
+    # maybe_dump_heatmaps(normalized_model_obj)
     return results
