@@ -433,12 +433,6 @@ def load_quantized_model(
         input_name = inputs[0].name if len(inputs) > 0 else None
         output_names = [o.name for o in outputs]
 
-        print(f"[ONNX] session providers: {session.get_providers()}")
-        print(f"[ONNX] graph optimization level: {graph_optimization_level}")
-        print(f"[ONNX] num_inputs: {len(inputs)}")
-        print(f"[ONNX] input: {input_name}")
-        print(f"[ONNX] outputs: {output_names}")
-
         return {
             "backend": "onnx",
             "session": session,

@@ -6,6 +6,60 @@ from evaluation.eval_dataset import extract_data
 
 warnings.filterwarnings("ignore")
 
+import numpy as np
+import torch
+
+def convert_onnx_outputs_to_result(outputs):
+    """
+    Convert raw ONNX outputs to the same structure returned by:
+        model(return_loss=False, rescale=True, **data)
+
+    Assumes:
+      outputs[1] -> ego_fut_preds, shape [B, 3, 6, 2]
+      outputs[2] -> ego_fut_cmd logits or command scores
+    """
+    if not isinstance(outputs, (list, tuple)):
+        raise TypeError(f"Expected list/tuple from ONNX session.run, got {type(outputs)}")
+
+    if len(outputs) < 3:
+        raise ValueError(f"Expected at least 3 ONNX outputs, got {len(outputs)}")
+
+    ego_fut_preds = outputs[1]
+    ego_fut_cmd_raw = outputs[2]
+
+    if not isinstance(ego_fut_preds, np.ndarray):
+        raise TypeError(f"outputs[1] must be ndarray, got {type(ego_fut_preds)}")
+    if ego_fut_preds.ndim != 4 or ego_fut_preds.shape[-2:] != (6, 2):
+        raise ValueError(f"Unexpected ego_fut_preds shape: {ego_fut_preds.shape}")
+
+    B = ego_fut_preds.shape[0]
+    results = []
+
+    for b in range(B):
+        preds_b = torch.from_numpy(ego_fut_preds[b]).float()  # [3, 6, 2]
+
+        cmd_b = np.asarray(ego_fut_cmd_raw[b], dtype=np.float32)
+
+        # Make command one-hot tensor shaped like [[[ [c0,c1,c2] ]]]
+        # Adjust this if your exported command tensor has a different meaning.
+        flat = cmd_b.reshape(-1)
+        if flat.size < 3:
+            raise ValueError(f"Command output too small to infer 3-way command: shape={cmd_b.shape}")
+
+        cmd_idx = int(np.argmax(flat[:3]))
+        cmd_onehot = np.zeros((1, 1, 1, 3), dtype=np.float32)
+        cmd_onehot[0, 0, 0, cmd_idx] = 1.0
+
+        results.append({
+            "pts_bbox": {
+                "ego_fut_preds": preds_b,
+                "ego_fut_cmd": torch.from_numpy(cmd_onehot),
+            }
+        })
+
+    return results
+
+
 def get_model_result(model_obj, data):
     backend = model_obj["backend"]
 
@@ -51,7 +105,8 @@ def get_model_result(model_obj, data):
         if img_np.ndim != 4:
             raise ValueError(f"ONNX expects rank-4 input, got shape {img_np.shape}")
 
-        result = session.run(None, {input_name: img_np})
+        outputs = session.run(None, {input_name: img_np})
+        result = convert_onnx_outputs_to_result(outputs)
         return result
 
     raise ValueError(f"Unsupported backend: {backend}")
