@@ -42,10 +42,10 @@ python -m pip install --force-reinstall --no-deps "opencv-python-headless<4.13"
 
 echo "Installing PyTorch 2.1 CPU stack..."
 python -m pip install \
-  torch==2.1.0 \
-  torchvision==0.16.0 \
-  torchaudio==2.1.0 \
-  --index-url https://download.pytorch.org/whl/cpu
+  torch==2.1.0+cu121 \
+  torchvision==0.16.0+cu121 \
+  torchaudio==2.1.0+cu121 \
+  --index-url https://download.pytorch.org/whl/cu121
 
 echo "Installing MMCV/MMDetection legacy stack..."
 python -m pip install \
