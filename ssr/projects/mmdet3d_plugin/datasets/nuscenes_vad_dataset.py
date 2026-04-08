@@ -1786,17 +1786,28 @@ class VADCustomNuScenesDataset(NuScenesDataset):
         logger.debug('-------------- Planning --------------')
         metric_dict = None
         num_valid = 0
-        for res in results:
-            if res['metric_results']['fut_valid_flag']:
-                num_valid += 1
-            else:
+        for i, res in enumerate(results):
+            if not isinstance(res, dict):
+                print(f"[WARN] results[{i}] is not a dict: {type(res)}")
                 continue
+
+            mr = res.get('metric_results', None)
+            if not isinstance(mr, dict):
+                print(f"[WARN] results[{i}]['metric_results'] is not a dict: {type(mr)}")
+                print("value:", mr)
+                continue
+
+            if not mr.get('fut_valid_flag', False):
+                continue
+
+            num_valid += 1
+
             if metric_dict is None:
-                metric_dict = copy.deepcopy(res['metric_results'])
+                metric_dict = copy.deepcopy(mr)
             else:
-                for k in res['metric_results'].keys():
-                    metric_dict[k] += res['metric_results'][k]
-        
+                for k in mr.keys():
+                    metric_dict[k] += mr[k]
+                    
         for k in metric_dict:
             metric_dict[k] = metric_dict[k] / num_valid
             print("{}:\t{}".format(k, metric_dict[k]))
