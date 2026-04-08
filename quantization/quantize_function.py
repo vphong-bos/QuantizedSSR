@@ -354,27 +354,72 @@ def load_quantized_model(
             graph_optimization_level
         )
 
-        available = ort.get_available_providers()
-        print(f"[ONNX] available providers: {available}")
+        providers = ["CPUExecutionProvider"]
 
-        if provider == "TensorrtExecutionProvider":
-            providers = [
-                "TensorrtExecutionProvider",
-                "CUDAExecutionProvider",
-                "CPUExecutionProvider",
-            ]
-        elif provider == "CUDAExecutionProvider":
-            providers = [
-                "CUDAExecutionProvider",
-                "CPUExecutionProvider",
-            ]
-        else:
-            providers = ["CPUExecutionProvider"]
+        def _unnormalize(coord, size, align_corners):
+            if align_corners:
+                return ((coord + 1.0) * (size - 1)) / 2.0
+            return ((coord + 1.0) * size - 1.0) / 2.0
 
-        providers = [p for p in providers if p in available]
+        from onnx import helper, TensorProto
+        from onnxruntime_extensions import onnx_op, PyCustomOpDef, get_library_path, enable_py_op
+        import numpy as np
 
-        print(f"[ONNX] requested provider: {provider}")
-        print(f"[ONNX] provider fallback order: {providers}")
+        @onnx_op(
+            op_type="GridSampleBilinearZerosAC0",
+            domain="ai.onnx.contrib",
+            inputs=[PyCustomOpDef.dt_float, PyCustomOpDef.dt_float],
+            outputs=[PyCustomOpDef.dt_float],
+        )
+        def grid_sample_bilinear_zeros_ac0(x, grid):
+            x = np.asarray(x, dtype=np.float32)
+            grid = np.asarray(grid, dtype=np.float32)
+
+            if x.ndim != 4:
+                raise ValueError(f"Expected x.ndim == 4, got {x.ndim}")
+            if grid.ndim != 4 or grid.shape[-1] != 2:
+                raise ValueError(f"Expected grid shape [N,H_out,W_out,2], got {grid.shape}")
+
+            N, C, H, W = x.shape
+            Ng, H_out, W_out, _ = grid.shape
+            if Ng != N:
+                raise ValueError(f"Batch mismatch: x batch {N}, grid batch {Ng}")
+
+            y = np.zeros((N, C, H_out, W_out), dtype=np.float32)
+
+            for n in range(N):
+                for h in range(H_out):
+                    for w in range(W_out):
+                        gx = grid[n, h, w, 0]
+                        gy = grid[n, h, w, 1]
+
+                        ix = _unnormalize(gx, W, align_corners=False)
+                        iy = _unnormalize(gy, H, align_corners=False)
+
+                        x0 = int(np.floor(ix))
+                        x1 = x0 + 1
+                        y0 = int(np.floor(iy))
+                        y1 = y0 + 1
+
+                        wa = (x1 - ix) * (y1 - iy)
+                        wb = (ix - x0) * (y1 - iy)
+                        wc = (x1 - ix) * (iy - y0)
+                        wd = (ix - x0) * (iy - y0)
+
+                        if 0 <= x0 < W and 0 <= y0 < H:
+                            y[n, :, h, w] += wa * x[n, :, y0, x0]
+                        if 0 <= x1 < W and 0 <= y0 < H:
+                            y[n, :, h, w] += wb * x[n, :, y0, x1]
+                        if 0 <= x0 < W and 0 <= y1 < H:
+                            y[n, :, h, w] += wc * x[n, :, y1, x0]
+                        if 0 <= x1 < W and 0 <= y1 < H:
+                            y[n, :, h, w] += wd * x[n, :, y1, x1]
+
+            return y
+
+        enable_py_op(True)
+
+        so.register_custom_ops_library(get_library_path())
 
         session = ort.InferenceSession(
             quant_weights,
