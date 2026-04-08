@@ -682,7 +682,7 @@ def main(args):
             onnx_path,
             input_names=["input"],
             output_names=["output"],
-            opset_version=16,
+            opset_version=20,
             export_int32_bias=False,
             prequantize_constants=True
         )
