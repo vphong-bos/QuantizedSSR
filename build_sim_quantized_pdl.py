@@ -382,7 +382,7 @@ def main(args):
         set_random_seed(args.seed, deterministic=args.deterministic)
 
     print("Building dataset / dataloader...")
-    cfg, dataset, data_loader = build_eval_loader(args.config)
+    cfg, dataset, data_loader = build_eval_loader(args.config, is_calib=True)
 
     print("Loading FP32 model...")
     model, _ = load_default_model(cfg, args.checkpoint, dataset, args.fuse_conv_bn, args.device)

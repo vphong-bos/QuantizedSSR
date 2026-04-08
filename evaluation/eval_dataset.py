@@ -32,6 +32,7 @@ def build_eval_loader(
     cfg_options=None,
     distributed=False,
     shuffle=False,
+    is_calib=False,
 ):
     """Create dataset and dataloader for test/inference from a config file.
 
@@ -51,7 +52,11 @@ def build_eval_loader(
     cfg.model.pretrained = None
     cfg, samples_per_gpu = prepare_cfg(cfg)
 
-    dataset = build_dataset(cfg.data.val)
+    dataset = None
+    if is_calib:
+        dataset = build_dataset(cfg.data.val)
+    else:
+        dataset = build_dataset(cfg.data.test)
     data_loader = build_dataloader(
         dataset,
         samples_per_gpu=samples_per_gpu,
