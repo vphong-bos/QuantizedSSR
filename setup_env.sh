@@ -33,8 +33,6 @@ python -m pip install aimet-torch
 
 python -m pip install onnxruntime-gpu==1.23.0
 
-python -m pip install onnx onnxruntime onnxruntime-extensions
-
 python -m pip install joblib threadpoolctl scipy tqdm cachetools loguru shapely descartes ipython seaborn
 
 echo "Installing legacy-compatible opencv..."
@@ -42,10 +40,10 @@ python -m pip install --force-reinstall --no-deps "opencv-python-headless<4.13"
 
 echo "Installing PyTorch 2.1 CPU stack..."
 python -m pip install \
-  torch==2.1.0+cu121 \
-  torchvision==0.16.0+cu121 \
-  torchaudio==2.1.0+cu121 \
-  --index-url https://download.pytorch.org/whl/cu121
+  torch==2.1.0 \
+  torchvision==0.16.0 \
+  torchaudio==2.1.0 \
+  --index-url https://download.pytorch.org/whl/cpu
 
 echo "Installing MMCV/MMDetection legacy stack..."
 python -m pip install \
