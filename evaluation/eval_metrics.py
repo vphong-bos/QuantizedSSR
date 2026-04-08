@@ -360,9 +360,9 @@ def evaluate_model(
 ):
     if device is None:
         if isinstance(model_obj, dict):
-            device = model_obj.get("device", "cuda" if torch.cuda.is_available() else "cpu")
+            device = model_obj.get("device", "cpu")
         else:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = "cpu"
 
     if isinstance(device, torch.device):
         device = str(device)
@@ -382,6 +382,10 @@ def evaluate_model(
     normalized_model_obj["device"] = device
 
     if backend == "torch" and model is not None:
+        if device.startswith("cuda") and not torch.cuda.is_available():
+            raise RuntimeError(
+                f"Requested torch device '{device}' but this PyTorch build has no CUDA support."
+            )
         model.to(device)
         model.eval()
 
@@ -396,7 +400,7 @@ def evaluate_model(
 
             data = extract_data(data)
 
-            if backend in {"torch", "onnx"}:
+            if backend == "torch":
                 data = move_data_to_device(data, device)
 
             result = get_model_result(normalized_model_obj, data)
