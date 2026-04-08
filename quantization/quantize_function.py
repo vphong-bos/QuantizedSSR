@@ -422,7 +422,7 @@ def load_quantized_model(
         session = ort.InferenceSession(
             quant_weights,
             sess_options=so,
-            providers=provider,
+            providers=[provider],
         )
 
         inputs = session.get_inputs()
