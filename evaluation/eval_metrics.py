@@ -162,8 +162,8 @@ def build_ssr_result_from_onnx_outs(outs, data):
     bbox_results = []
     for i in range(len(outs["ego_fut_preds"])):
         bbox_results.append({
-            "ego_fut_preds": outs["ego_fut_preds"][i].cpu(),
-            "ego_fut_cmd": ego_fut_cmd.cpu(),
+            "ego_fut_preds": outs["ego_fut_preds"][i],
+            "ego_fut_cmd": ego_fut_cmd,
         })
 
     assert len(bbox_results) == 1, "only support batch_size=1 now"
