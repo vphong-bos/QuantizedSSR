@@ -33,6 +33,8 @@ python -m pip install aimet-torch
 
 python -m pip install onnxruntime-gpu==1.23.0
 
+python -m pip install onnx onnxruntime onnxruntime-extensions
+
 python -m pip install joblib threadpoolctl scipy tqdm cachetools loguru shapely descartes ipython seaborn
 
 echo "Installing legacy-compatible opencv..."
