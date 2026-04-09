@@ -120,7 +120,7 @@ class SpatialCrossAttention(BaseModule):
                      embed_dims=256,
                      num_levels=4),
                  bev_size=(100, 100),
-                 debug_save=False,
+                 debug_save=True,
                  debug_log_dir='logs',
                  debug_video_fps=10,
                  debug_video_format='mp4',
