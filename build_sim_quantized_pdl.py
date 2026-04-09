@@ -635,7 +635,7 @@ def main(args):
     # for path, typ, err in bad_hits[:100]:
     #     print(f"{path} :: {typ} :: {err}")
 
-    max_retry = 1
+    max_retry = 4
     success = False
 
     def build_skip_layers(level):
