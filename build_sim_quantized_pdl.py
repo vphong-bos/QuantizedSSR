@@ -511,30 +511,30 @@ def main(args):
     #     skip_layer_names=skip_layer_names
     # )
 
-    if args.enable_seq_mse:
-        maybe_run_seq_mse(
-            wrapped_model=wrapped_model,
-            sim=sim,
-            calib_loader=data_loader,
-            enabled=True,
-            num_batches=args.seq_mse_num_batches,
-        )
-    else:
-        print("Sequential MSE disabled")
+    # if args.enable_seq_mse:
+    #     maybe_run_seq_mse(
+    #         wrapped_model=wrapped_model,
+    #         sim=sim,
+    #         calib_loader=data_loader,
+    #         enabled=True,
+    #         num_batches=args.seq_mse_num_batches,
+    #     )
+    # else:
+    #     print("Sequential MSE disabled")
 
-    print("Computing encodings with calibration data...")
-    calib_start = time.time()
-    sim.compute_encodings(
-        forward_pass_callback=calibration_forward_pass,
-        forward_pass_callback_args=(
-            data_loader,
-            torch.device(args.device),
-            args.calib_batches,
-            args.calib_max_samples,
-        ),
-    )
-    calib_time = time.time() - calib_start
-    print(f"Calibration finished in {calib_time:.2f} s")
+    # print("Computing encodings with calibration data...")
+    # calib_start = time.time()
+    # sim.compute_encodings(
+    #     forward_pass_callback=calibration_forward_pass,
+    #     forward_pass_callback_args=(
+    #         data_loader,
+    #         torch.device(args.device),
+    #         args.calib_batches,
+    #         args.calib_max_samples,
+    #     ),
+    # )
+    # calib_time = time.time() - calib_start
+    # print(f"Calibration finished in {calib_time:.2f} s")
 
     # for m in sim.model.modules():
     #     if hasattr(m, "debug_save"):
