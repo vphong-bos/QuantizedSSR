@@ -499,35 +499,17 @@ def main(args):
 
     skip_layer_names = []
 
-    num_encoder_layers_to_skip = 3
-
-    skip_layer_names = []
-    for i in range(num_encoder_layers_to_skip):
-        skip_layer_names.extend([
-            f"model.pts_bbox_head.transformer.encoder.layers.{i}.attentions.0",
-            f"model.pts_bbox_head.transformer.encoder.layers.{i}.attentions.0.dropout",
-            f"model.pts_bbox_head.transformer.encoder.layers.{i}.attentions.0.sampling_offsets",
-            f"model.pts_bbox_head.transformer.encoder.layers.{i}.attentions.0.attention_weights",
-            f"model.pts_bbox_head.transformer.encoder.layers.{i}.attentions.0.value_proj",
-            f"model.pts_bbox_head.transformer.encoder.layers.{i}.attentions.0.output_proj",
-            f"model.pts_bbox_head.transformer.encoder.layers.{i}.attentions.1",
-            f"model.pts_bbox_head.transformer.encoder.layers.{i}.attentions.1.deformable_attention",
-        ])
-
-    print(f"num_encoder_layers_to_skip = {num_encoder_layers_to_skip}")
-    print(f"skip_layer_names count = {len(skip_layer_names)}")
-
-    print("Creating AIMET QuantizationSimModel...")
-    sim = create_quant_sim(
-        model=wrapped_model,
-        device=args.device,
-        dummy_input=dummy_input,
-        quant_scheme=args.quant_scheme,
-        default_output_bw=args.default_output_bw,
-        default_param_bw=args.default_param_bw,
-        config_path=args.config_path,
-        skip_layer_names=skip_layer_names
-    )
+    # print("Creating AIMET QuantizationSimModel...")
+    # sim = create_quant_sim(
+    #     model=wrapped_model,
+    #     device=args.device,
+    #     dummy_input=dummy_input,
+    #     quant_scheme=args.quant_scheme,
+    #     default_output_bw=args.default_output_bw,
+    #     default_param_bw=args.default_param_bw,
+    #     config_path=args.config_path,
+    #     skip_layer_names=skip_layer_names
+    # )
 
     if args.enable_seq_mse:
         maybe_run_seq_mse(
@@ -540,217 +522,17 @@ def main(args):
     else:
         print("Sequential MSE disabled")
 
-        print("Computing encodings with calibration data...")
+    print("Computing encodings with calibration data...")
     calib_start = time.time()
-
-    import cv2
-    from collections.abc import Mapping, Sequence
-
-    def _safe_close_video_writer(x):
-        try:
-            if isinstance(x, cv2.VideoWriter):
-                try:
-                    x.release()
-                except Exception:
-                    pass
-                return True
-        except Exception:
-            pass
-        return False
-
-    def _scrub_video_writers(obj, max_depth=8, _depth=0, _visited=None):
-        """
-        Recursively find and remove/disable cv2.VideoWriter references.
-        Returns number of changes made.
-        """
-        if _visited is None:
-            _visited = set()
-
-        if _depth > max_depth:
-            return 0
-
-        obj_id = id(obj)
-        if obj_id in _visited:
-            return 0
-        _visited.add(obj_id)
-
-        changes = 0
-
-        # direct VideoWriter object
-        if _safe_close_video_writer(obj):
-            return 1
-
-        # dict-like
-        if isinstance(obj, Mapping):
-            for k in list(obj.keys()):
-                v = obj[k]
-                if _safe_close_video_writer(v):
-                    obj[k] = None
-                    changes += 1
-                else:
-                    changes += _scrub_video_writers(
-                        v, max_depth=max_depth, _depth=_depth + 1, _visited=_visited
-                    )
-            return changes
-
-        # list
-        if isinstance(obj, list):
-            for i, v in enumerate(obj):
-                if _safe_close_video_writer(v):
-                    obj[i] = None
-                    changes += 1
-                else:
-                    changes += _scrub_video_writers(
-                        v, max_depth=max_depth, _depth=_depth + 1, _visited=_visited
-                    )
-            return changes
-
-        # tuple: cannot edit in place, only recurse
-        if isinstance(obj, tuple):
-            for v in obj:
-                changes += _scrub_video_writers(
-                    v, max_depth=max_depth, _depth=_depth + 1, _visited=_visited
-                )
-            return changes
-
-        # generic object attrs
-        if hasattr(obj, "__dict__"):
-            for name, v in list(vars(obj).items()):
-                # aggressively disable obvious debug/writer flags
-                if name in ("debug_save", "save_debug", "enable_debug", "write_video"):
-                    try:
-                        setattr(obj, name, False)
-                        changes += 1
-                    except Exception:
-                        pass
-
-                # close/remove direct writer attrs
-                if _safe_close_video_writer(v):
-                    try:
-                        setattr(obj, name, None)
-                        changes += 1
-                    except Exception:
-                        pass
-                    continue
-
-                # common writer-like attr names
-                if any(tok in name.lower() for tok in ("writer", "video", "debug_writer")):
-                    try:
-                        if hasattr(v, "release"):
-                            try:
-                                v.release()
-                            except Exception:
-                                pass
-                        setattr(obj, name, None)
-                        changes += 1
-                        continue
-                    except Exception:
-                        pass
-
-                changes += _scrub_video_writers(
-                    v, max_depth=max_depth, _depth=_depth + 1, _visited=_visited
-                )
-
-            # best-effort hook if module exposes cleanup API
-            for fn_name in ("close_debug_writers", "close_writers", "release_video_writer", "release"):
-                fn = getattr(obj, fn_name, None)
-                if callable(fn):
-                    try:
-                        fn()
-                        changes += 1
-                    except Exception:
-                        pass
-
-        return changes
-
-    def _looks_like_videowriter_error(exc: Exception) -> bool:
-        msg = f"{type(exc).__name__}: {exc}"
-        msg_lower = msg.lower()
-        return (
-            "videowriter" in msg_lower
-            or "cv2" in msg_lower and "pickle" in msg_lower
-            or "cannot pickle" in msg_lower
-            or "can't pickle" in msg_lower
-            or "pickl" in msg_lower and "writer" in msg_lower
-        )
-
-    def _run_compute_encodings():
-        sim.compute_encodings(
-            forward_pass_callback=calibration_forward_pass,
-            forward_pass_callback_args=(
-                data_loader,
-                torch.device(args.device),
-                args.calib_batches,
-                args.calib_max_samples,
-            ),
-        )
-
-    # Retry ladder:
-    # 1) normal
-    # 2) broad scrub everywhere relevant
-    # 3) lighter/local scrub and retry once more
-    try:
-        _run_compute_encodings()
-    except Exception as e1:
-        if not _looks_like_videowriter_error(e1):
-            raise
-
-        print(f"[WARN] compute_encodings failed on first try: {e1}")
-        print("[INFO] Broad scrub of VideoWriter/debug writer references...")
-
-        total_changes = 0
-        for target_name, target in [
-            ("sim", sim),
-            ("sim.model", getattr(sim, "model", None)),
-            ("wrapped_model", wrapped_model),
-            ("wrapped_model.model", getattr(wrapped_model, "model", None)),
-            ("prepared_batch", prepared_batch),
-        ]:
-            if target is None:
-                continue
-            try:
-                n = _scrub_video_writers(target, max_depth=10)
-                total_changes += n
-                print(f"[INFO] scrubbed {n} entries from {target_name}")
-            except Exception as scrub_exc:
-                print(f"[WARN] scrub failed on {target_name}: {scrub_exc}")
-
-        try:
-            _run_compute_encodings()
-        except Exception as e2:
-            if not _looks_like_videowriter_error(e2):
-                raise
-
-            print(f"[WARN] compute_encodings failed after broad scrub: {e2}")
-            print("[INFO] Trying less / local cleanup only...")
-
-            # lighter pass: target only top-level modules and obvious cleanup hooks
-            for m in sim.model.modules():
-                try:
-                    if hasattr(m, "debug_save"):
-                        m.debug_save = False
-                    if hasattr(m, "save_debug"):
-                        m.save_debug = False
-                    if hasattr(m, "enable_debug"):
-                        m.enable_debug = False
-                    if hasattr(m, "write_video"):
-                        m.write_video = False
-                    for fn_name in ("close_debug_writers", "close_writers", "release_video_writer"):
-                        fn = getattr(m, fn_name, None)
-                        if callable(fn):
-                            try:
-                                fn()
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-
-            # one final shallow scrub
-            _scrub_video_writers(sim, max_depth=3)
-            _scrub_video_writers(wrapped_model, max_depth=3)
-
-            _run_compute_encodings()
-
+    sim.compute_encodings(
+        forward_pass_callback=calibration_forward_pass,
+        forward_pass_callback_args=(
+            data_loader,
+            torch.device(args.device),
+            args.calib_batches,
+            args.calib_max_samples,
+        ),
+    )
     calib_time = time.time() - calib_start
     print(f"Calibration finished in {calib_time:.2f} s")
 
@@ -852,6 +634,87 @@ def main(args):
     # print("\nNon-picklable hits:")
     # for path, typ, err in bad_hits[:100]:
     #     print(f"{path} :: {typ} :: {err}")
+
+    max_retry = 1
+    success = False
+
+    def build_skip_layers(level):
+        """
+        level 0 = minimal
+        level 1 = attention only
+        level 2 = attention + ffn + norms
+        level 3 = full (your current big list)
+        """
+
+        skip = []
+
+        num_layers = 3
+
+        if level >= 1:
+            for i in range(num_layers):
+                skip.extend([
+                    f"model.pts_bbox_head.transformer.encoder.layers.{i}.attentions.0",
+                    f"model.pts_bbox_head.transformer.encoder.layers.{i}.attentions.1",
+                ])
+
+        if level >= 2:
+            for i in range(num_layers):
+                skip.extend([
+                    f"model.pts_bbox_head.transformer.encoder.layers.{i}.ffns",
+                    f"model.pts_bbox_head.transformer.encoder.layers.{i}.norms",
+                ])
+
+        if level >= 3:
+            # fallback to your original heavy skip
+            skip.extend([
+                "model.pts_bbox_head.transformer.level_embeds",
+                "model.pts_bbox_head.transformer.cams_embeds",
+            ])
+
+        return skip
+
+    for level in range(max_retry):
+        print(f"\n[TRY] skip level = {level}")
+
+        skip_layer_names = build_skip_layers(level)
+        print(f"[INFO] skip_layer_names count = {len(skip_layer_names)}")
+
+        sim = create_quant_sim(
+            model=wrapped_model,
+            device=args.device,
+            dummy_input=dummy_input,
+            quant_scheme=args.quant_scheme,
+            default_output_bw=args.default_output_bw,
+            default_param_bw=args.default_param_bw,
+            config_path=args.config_path,
+            skip_layer_names=skip_layer_names
+        )
+
+        try:
+            # ---- calibration ----
+            sim.compute_encodings(
+                forward_pass_callback=calibration_forward_pass,
+                forward_pass_callback_args=(
+                    data_loader,
+                    torch.device(args.device),
+                    args.calib_batches,
+                    args.calib_max_samples,
+                ),
+            )
+
+            # ---- save ----
+            if args.save_quant_checkpoint is not None:
+                quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
+
+            print(f"[SUCCESS] worked at skip level {level}")
+            success = True
+            break
+
+        except Exception as e:
+            print(f"[FAIL] level {level}: {e}")
+
+            if level == max_retry - 1:
+                raise
 
     if args.save_quant_checkpoint is not None:
         quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
