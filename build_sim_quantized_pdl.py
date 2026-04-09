@@ -634,43 +634,157 @@ def main(args):
     # print("\nNon-picklable hits:")
     # for path, typ, err in bad_hits[:100]:
     #     print(f"{path} :: {typ} :: {err}")
+    SKIP_GROUPS = [
 
-    max_retry = 4
+        # -----------------------
+        # GROUP 0: embeddings / weights (very safe)
+        # -----------------------
+        [
+            "pts_bbox_head.code_weights",
+            "pts_bbox_head.map_code_weights",
+            "pts_bbox_head.transformer.level_embeds",
+            "pts_bbox_head.transformer.cams_embeds",
+        ],
+
+        # -----------------------
+        # GROUP 1: encoder layer 0
+        # -----------------------
+        [
+            "pts_bbox_head.transformer.encoder.layers.0.attentions.0.sampling_offsets.bias",
+            "pts_bbox_head.transformer.encoder.layers.0.attentions.0.attention_weights.bias",
+            "pts_bbox_head.transformer.encoder.layers.0.attentions.0.value_proj.bias",
+            "pts_bbox_head.transformer.encoder.layers.0.attentions.0.output_proj.bias",
+            "pts_bbox_head.transformer.encoder.layers.0.attentions.1.deformable_attention.sampling_offsets.bias",
+            "pts_bbox_head.transformer.encoder.layers.0.attentions.1.deformable_attention.attention_weights.bias",
+            "pts_bbox_head.transformer.encoder.layers.0.attentions.1.deformable_attention.value_proj.bias",
+            "pts_bbox_head.transformer.encoder.layers.0.attentions.1.output_proj.bias",
+            "pts_bbox_head.transformer.encoder.layers.0.ffns.0.layers.0.0.weight",
+            "pts_bbox_head.transformer.encoder.layers.0.ffns.0.layers.0.0.bias",
+            "pts_bbox_head.transformer.encoder.layers.0.ffns.0.layers.1.weight",
+            "pts_bbox_head.transformer.encoder.layers.0.ffns.0.layers.1.bias",
+            "pts_bbox_head.transformer.encoder.layers.0.norms.0.bias",
+            "pts_bbox_head.transformer.encoder.layers.0.norms.1.bias",
+            "pts_bbox_head.transformer.encoder.layers.0.norms.2.bias",
+        ],
+
+        # -----------------------
+        # GROUP 2: encoder layer 1
+        # -----------------------
+        [
+            "pts_bbox_head.transformer.encoder.layers.1.attentions.0.sampling_offsets.bias",
+            "pts_bbox_head.transformer.encoder.layers.1.attentions.0.attention_weights.bias",
+            "pts_bbox_head.transformer.encoder.layers.1.attentions.0.value_proj.bias",
+            "pts_bbox_head.transformer.encoder.layers.1.attentions.0.output_proj.bias",
+            "pts_bbox_head.transformer.encoder.layers.1.attentions.1.deformable_attention.sampling_offsets.bias",
+            "pts_bbox_head.transformer.encoder.layers.1.attentions.1.deformable_attention.attention_weights.bias",
+            "pts_bbox_head.transformer.encoder.layers.1.attentions.1.deformable_attention.value_proj.bias",
+            "pts_bbox_head.transformer.encoder.layers.1.attentions.1.output_proj.bias",
+            "pts_bbox_head.transformer.encoder.layers.1.ffns.0.layers.0.0.weight",
+            "pts_bbox_head.transformer.encoder.layers.1.ffns.0.layers.0.0.bias",
+            "pts_bbox_head.transformer.encoder.layers.1.ffns.0.layers.1.weight",
+            "pts_bbox_head.transformer.encoder.layers.1.ffns.0.layers.1.bias",
+            "pts_bbox_head.transformer.encoder.layers.1.norms.0.bias",
+            "pts_bbox_head.transformer.encoder.layers.1.norms.1.bias",
+            "pts_bbox_head.transformer.encoder.layers.1.norms.2.bias",
+        ],
+
+        # -----------------------
+        # GROUP 3: encoder layer 2
+        # -----------------------
+        [
+            "pts_bbox_head.transformer.encoder.layers.2.attentions.0.sampling_offsets.bias",
+            "pts_bbox_head.transformer.encoder.layers.2.attentions.0.attention_weights.bias",
+            "pts_bbox_head.transformer.encoder.layers.2.attentions.0.value_proj.bias",
+            "pts_bbox_head.transformer.encoder.layers.2.attentions.0.output_proj.bias",
+            "pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention.sampling_offsets.bias",
+            "pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention.attention_weights.bias",
+            "pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention.value_proj.bias",
+            "pts_bbox_head.transformer.encoder.layers.2.attentions.1.output_proj.bias",
+            "pts_bbox_head.transformer.encoder.layers.2.ffns.0.layers.0.0.weight",
+            "pts_bbox_head.transformer.encoder.layers.2.ffns.0.layers.0.0.bias",
+            "pts_bbox_head.transformer.encoder.layers.2.ffns.0.layers.1.weight",
+            "pts_bbox_head.transformer.encoder.layers.2.ffns.0.layers.1.bias",
+            "pts_bbox_head.transformer.encoder.layers.2.norms.0.bias",
+            "pts_bbox_head.transformer.encoder.layers.2.norms.1.bias",
+            "pts_bbox_head.transformer.encoder.layers.2.norms.2.bias",
+        ],
+
+        # -----------------------
+        # GROUP 4: transformer heads / misc
+        # -----------------------
+        [
+            "pts_bbox_head.transformer.reference_points.weight",
+            "pts_bbox_head.transformer.reference_points.bias",
+            "pts_bbox_head.transformer.map_reference_points.weight",
+            "pts_bbox_head.transformer.map_reference_points.bias",
+            "pts_bbox_head.transformer.can_bus_mlp.0.bias",
+            "pts_bbox_head.transformer.can_bus_mlp.2.bias",
+        ],
+
+        # -----------------------
+        # GROUP 5: ALL branches (largest block)
+        # -----------------------
+        [
+            "pts_bbox_head.cls_branches.0.0.weight",
+            "pts_bbox_head.cls_branches.0.0.bias",
+            "pts_bbox_head.cls_branches.0.1.weight",
+            "pts_bbox_head.cls_branches.0.1.bias",
+            "pts_bbox_head.cls_branches.0.3.weight",
+            "pts_bbox_head.cls_branches.0.3.bias",
+            "pts_bbox_head.cls_branches.0.4.weight",
+            "pts_bbox_head.cls_branches.0.4.bias",
+            "pts_bbox_head.cls_branches.0.6.weight",
+            "pts_bbox_head.cls_branches.0.6.bias",
+
+            "pts_bbox_head.reg_branches.0.0.weight",
+            "pts_bbox_head.reg_branches.0.0.bias",
+            "pts_bbox_head.reg_branches.0.2.weight",
+            "pts_bbox_head.reg_branches.0.2.bias",
+            "pts_bbox_head.reg_branches.0.4.weight",
+            "pts_bbox_head.reg_branches.0.4.bias",
+
+            "pts_bbox_head.traj_branches.0.0.weight",
+            "pts_bbox_head.traj_branches.0.0.bias",
+            "pts_bbox_head.traj_branches.0.2.weight",
+            "pts_bbox_head.traj_branches.0.2.bias",
+            "pts_bbox_head.traj_branches.0.4.weight",
+            "pts_bbox_head.traj_branches.0.4.bias",
+
+            "pts_bbox_head.traj_cls_branches.0.0.weight",
+            "pts_bbox_head.traj_cls_branches.0.0.bias",
+            "pts_bbox_head.traj_cls_branches.0.1.weight",
+            "pts_bbox_head.traj_cls_branches.0.1.bias",
+            "pts_bbox_head.traj_cls_branches.0.3.weight",
+            "pts_bbox_head.traj_cls_branches.0.3.bias",
+            "pts_bbox_head.traj_cls_branches.0.4.weight",
+            "pts_bbox_head.traj_cls_branches.0.4.bias",
+            "pts_bbox_head.traj_cls_branches.0.6.weight",
+            "pts_bbox_head.traj_cls_branches.0.6.bias",
+
+            "pts_bbox_head.map_cls_branches.0.0.weight",
+            "pts_bbox_head.map_cls_branches.0.0.bias",
+            "pts_bbox_head.map_cls_branches.0.1.weight",
+            "pts_bbox_head.map_cls_branches.0.1.bias",
+            "pts_bbox_head.map_cls_branches.0.3.weight",
+            "pts_bbox_head.map_cls_branches.0.3.bias",
+            "pts_bbox_head.map_cls_branches.0.4.weight",
+            "pts_bbox_head.map_cls_branches.0.4.bias",
+            "pts_bbox_head.map_cls_branches.0.6.weight",
+            "pts_bbox_head.map_cls_branches.0.6.bias",
+
+            "pts_bbox_head.map_reg_branches.0.0.weight",
+            "pts_bbox_head.map_reg_branches.0.0.bias",
+            "pts_bbox_head.map_reg_branches.0.2.weight",
+        ],
+    ]
+
+    max_retry = len(SKIP_GROUPS) + 1
     success = False
 
-    def build_skip_layers(level):
-        """
-        level 0 = minimal
-        level 1 = attention only
-        level 2 = attention + ffn + norms
-        level 3 = full (your current big list)
-        """
-
+    def build_skip_layers(level: int):
         skip = []
-
-        num_layers = 3
-
-        if level >= 1:
-            for i in range(num_layers):
-                skip.extend([
-                    f"model.pts_bbox_head.transformer.encoder.layers.{i}.attentions.0",
-                    f"model.pts_bbox_head.transformer.encoder.layers.{i}.attentions.1",
-                ])
-
-        if level >= 2:
-            for i in range(num_layers):
-                skip.extend([
-                    f"model.pts_bbox_head.transformer.encoder.layers.{i}.ffns",
-                    f"model.pts_bbox_head.transformer.encoder.layers.{i}.norms",
-                ])
-
-        if level >= 3:
-            # fallback to your original heavy skip
-            skip.extend([
-                "model.pts_bbox_head.transformer.level_embeds",
-                "model.pts_bbox_head.transformer.cams_embeds",
-            ])
-
+        for i in range(min(level, len(SKIP_GROUPS))):
+            skip.extend(SKIP_GROUPS[i])
         return skip
 
     for level in range(max_retry):
