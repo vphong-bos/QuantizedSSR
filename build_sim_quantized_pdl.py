@@ -464,13 +464,13 @@ def main(args):
     #     # "pts_bbox_head.positional_encoding.*",
     #     # "pts_bbox_head.transformer.level_embeds",
     #     # "pts_bbox_head.transformer.cams_embeds",
-    #     # "pts_bbox_head.bev_embedding",
-    #     # "pts_bbox_head.query_embedding",
-    #     # "pts_bbox_head.map_instance_embedding",
-    #     # "pts_bbox_head.map_pts_embedding",
-    #     # "pts_bbox_head.ego_query",
-    #     # "pts_bbox_head.navi_embedding",
-    #     # "pts_bbox_head.way_point",
+    #     # "pts_bbox_head.bev_embedding.weight",
+    #     # "pts_bbox_head.query_embedding.weight",
+    #     # "pts_bbox_head.map_instance_embedding.weight",
+    #     # "pts_bbox_head.map_pts_embedding.weight",
+    #     # "pts_bbox_head.ego_query.weight",
+    #     # "pts_bbox_head.navi_embedding.weight",
+    #     # "pts_bbox_head.way_point.weight",
     # ]
 
     # def get_skip_layer_names(model):
@@ -499,42 +499,63 @@ def main(args):
 
     skip_layer_names = []
 
-    # print("Creating AIMET QuantizationSimModel...")
-    # sim = create_quant_sim(
-    #     model=wrapped_model,
-    #     device=args.device,
-    #     dummy_input=dummy_input,
-    #     quant_scheme=args.quant_scheme,
-    #     default_output_bw=args.default_output_bw,
-    #     default_param_bw=args.default_param_bw,
-    #     config_path=args.config_path,
-    #     skip_layer_names=skip_layer_names
-    # )
+    # skip_layer_names = [
+    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0",
+    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.dropout",
+    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.sampling_offsets",
+    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.attention_weights",
+    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.value_proj",
+    #     "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.output_proj",
+    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0",
+    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.dropout",
+    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.sampling_offsets",
+    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.attention_weights",
+    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.value_proj",
+    #     "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.output_proj",
+    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0",
+    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.dropout",
+    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.sampling_offsets",
+    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.attention_weights",
+    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.value_proj",
+    #     "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.output_proj",
+    # ]
 
-    # if args.enable_seq_mse:
-    #     maybe_run_seq_mse(
-    #         wrapped_model=wrapped_model,
-    #         sim=sim,
-    #         calib_loader=data_loader,
-    #         enabled=True,
-    #         num_batches=args.seq_mse_num_batches,
-    #     )
-    # else:
-    #     print("Sequential MSE disabled")
+    print("Creating AIMET QuantizationSimModel...")
+    sim = create_quant_sim(
+        model=wrapped_model,
+        device=args.device,
+        dummy_input=dummy_input,
+        quant_scheme=args.quant_scheme,
+        default_output_bw=args.default_output_bw,
+        default_param_bw=args.default_param_bw,
+        config_path=args.config_path,
+        skip_layer_names=skip_layer_names
+    )
 
-    # print("Computing encodings with calibration data...")
-    # calib_start = time.time()
-    # sim.compute_encodings(
-    #     forward_pass_callback=calibration_forward_pass,
-    #     forward_pass_callback_args=(
-    #         data_loader,
-    #         torch.device(args.device),
-    #         args.calib_batches,
-    #         args.calib_max_samples,
-    #     ),
-    # )
-    # calib_time = time.time() - calib_start
-    # print(f"Calibration finished in {calib_time:.2f} s")
+    if args.enable_seq_mse:
+        maybe_run_seq_mse(
+            wrapped_model=wrapped_model,
+            sim=sim,
+            calib_loader=data_loader,
+            enabled=True,
+            num_batches=args.seq_mse_num_batches,
+        )
+    else:
+        print("Sequential MSE disabled")
+
+    print("Computing encodings with calibration data...")
+    calib_start = time.time()
+    sim.compute_encodings(
+        forward_pass_callback=calibration_forward_pass,
+        forward_pass_callback_args=(
+            data_loader,
+            torch.device(args.device),
+            args.calib_batches,
+            args.calib_max_samples,
+        ),
+    )
+    calib_time = time.time() - calib_start
+    print(f"Calibration finished in {calib_time:.2f} s")
 
     # for m in sim.model.modules():
     #     if hasattr(m, "debug_save"):
@@ -634,205 +655,10 @@ def main(args):
     # print("\nNon-picklable hits:")
     # for path, typ, err in bad_hits[:100]:
     #     print(f"{path} :: {typ} :: {err}")
-    SKIP_GROUPS = [
 
-        # -----------------------
-        # GROUP 0: embeddings / weights (very safe)
-        # -----------------------
-        # [
-        #     "model.pts_bbox_head.code_weights",
-        #     "model.pts_bbox_head.map_code_weights",
-        #     "model.pts_bbox_head.transformer.level_embeds",
-        #     "model.pts_bbox_head.transformer.cams_embeds",
-        # ],
-
-        # -----------------------
-        # GROUP 1: encoder layer 0
-        # -----------------------
-        [
-            "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.sampling_offsets",
-            "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.attention_weights",
-            "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.value_proj",
-            "model.pts_bbox_head.transformer.encoder.layers.0.attentions.0.output_proj",
-            "model.pts_bbox_head.transformer.encoder.layers.0.attentions.1.deformable_attention.sampling_offsets",
-            "model.pts_bbox_head.transformer.encoder.layers.0.attentions.1.deformable_attention.attention_weights",
-            "model.pts_bbox_head.transformer.encoder.layers.0.attentions.1.deformable_attention.value_proj",
-            "model.pts_bbox_head.transformer.encoder.layers.0.attentions.1.output_proj",
-            "model.pts_bbox_head.transformer.encoder.layers.0.ffns.0.layers.0.0",
-            "model.pts_bbox_head.transformer.encoder.layers.0.ffns.0.layers.0.0",
-            "model.pts_bbox_head.transformer.encoder.layers.0.ffns.0.layers.1",
-            "model.pts_bbox_head.transformer.encoder.layers.0.ffns.0.layers.1",
-            "model.pts_bbox_head.transformer.encoder.layers.0.norms.0",
-            "model.pts_bbox_head.transformer.encoder.layers.0.norms.1",
-            "model.pts_bbox_head.transformer.encoder.layers.0.norms.2",
-        ],
-
-        # -----------------------
-        # GROUP 2: encoder layer 1
-        # -----------------------
-        [
-            "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.sampling_offsets",
-            "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.attention_weights",
-            "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.value_proj",
-            "model.pts_bbox_head.transformer.encoder.layers.1.attentions.0.output_proj",
-            "model.pts_bbox_head.transformer.encoder.layers.1.attentions.1.deformable_attention.sampling_offsets",
-            "model.pts_bbox_head.transformer.encoder.layers.1.attentions.1.deformable_attention.attention_weights",
-            "model.pts_bbox_head.transformer.encoder.layers.1.attentions.1.deformable_attention.value_proj",
-            "model.pts_bbox_head.transformer.encoder.layers.1.attentions.1.output_proj",
-            "model.pts_bbox_head.transformer.encoder.layers.1.ffns.0.layers.0.0",
-            "model.pts_bbox_head.transformer.encoder.layers.1.ffns.0.layers.0.0",
-            "model.pts_bbox_head.transformer.encoder.layers.1.ffns.0.layers.1",
-            "model.pts_bbox_head.transformer.encoder.layers.1.ffns.0.layers.1",
-            "model.pts_bbox_head.transformer.encoder.layers.1.norms.0",
-            "model.pts_bbox_head.transformer.encoder.layers.1.norms.1",
-            "model.pts_bbox_head.transformer.encoder.layers.1.norms.2",
-        ],
-
-        # -----------------------
-        # GROUP 3: encoder layer 2
-        # -----------------------
-        [
-            "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.sampling_offsets",
-            "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.attention_weights",
-            "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.value_proj",
-            "model.pts_bbox_head.transformer.encoder.layers.2.attentions.0.output_proj",
-            "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention.sampling_offsets",
-            "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention.attention_weights",
-            "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1.deformable_attention.value_proj",
-            "model.pts_bbox_head.transformer.encoder.layers.2.attentions.1.output_proj",
-            "model.pts_bbox_head.transformer.encoder.layers.2.ffns.0.layers.0.0",
-            "model.pts_bbox_head.transformer.encoder.layers.2.ffns.0.layers.0.0",
-            "model.pts_bbox_head.transformer.encoder.layers.2.ffns.0.layers.1",
-            "model.pts_bbox_head.transformer.encoder.layers.2.ffns.0.layers.1",
-            "model.pts_bbox_head.transformer.encoder.layers.2.norms.0",
-            "model.pts_bbox_head.transformer.encoder.layers.2.norms.1",
-            "model.pts_bbox_head.transformer.encoder.layers.2.norms.2",
-        ],
-
-        # -----------------------
-        # GROUP 4: transformer heads / misc
-        # -----------------------
-        [
-            "model.pts_bbox_head.transformer.reference_points",
-            "model.pts_bbox_head.transformer.reference_points",
-            "model.pts_bbox_head.transformer.map_reference_points",
-            "model.pts_bbox_head.transformer.map_reference_points",
-            "model.pts_bbox_head.transformer.can_bus_mlp.0",
-            "model.pts_bbox_head.transformer.can_bus_mlp.2",
-        ],
-
-        # -----------------------
-        # GROUP 5: ALL branches (largest block)
-        # -----------------------
-        [
-            "model.pts_bbox_head.cls_branches.0.0",
-            "model.pts_bbox_head.cls_branches.0.0",
-            "model.pts_bbox_head.cls_branches.0.1",
-            "model.pts_bbox_head.cls_branches.0.1",
-            "model.pts_bbox_head.cls_branches.0.3",
-            "model.pts_bbox_head.cls_branches.0.3",
-            "model.pts_bbox_head.cls_branches.0.4",
-            "model.pts_bbox_head.cls_branches.0.4",
-            "model.pts_bbox_head.cls_branches.0.6",
-            "model.pts_bbox_head.cls_branches.0.6",
-
-            "model.pts_bbox_head.reg_branches.0.0",
-            "model.pts_bbox_head.reg_branches.0.0",
-            "model.pts_bbox_head.reg_branches.0.2",
-            "model.pts_bbox_head.reg_branches.0.2",
-            "model.pts_bbox_head.reg_branches.0.4",
-            "model.pts_bbox_head.reg_branches.0.4",
-
-            "model.pts_bbox_head.traj_branches.0.0",
-            "model.pts_bbox_head.traj_branches.0.0",
-            "model.pts_bbox_head.traj_branches.0.2",
-            "model.pts_bbox_head.traj_branches.0.2",
-            "model.pts_bbox_head.traj_branches.0.4",
-            "model.pts_bbox_head.traj_branches.0.4",
-
-            "model.pts_bbox_head.traj_cls_branches.0.0",
-            "model.pts_bbox_head.traj_cls_branches.0.0",
-            "model.pts_bbox_head.traj_cls_branches.0.1",
-            "model.pts_bbox_head.traj_cls_branches.0.1",
-            "model.pts_bbox_head.traj_cls_branches.0.3",
-            "model.pts_bbox_head.traj_cls_branches.0.3",
-            "model.pts_bbox_head.traj_cls_branches.0.4",
-            "model.pts_bbox_head.traj_cls_branches.0.4",
-            "model.pts_bbox_head.traj_cls_branches.0.6",
-            "model.pts_bbox_head.traj_cls_branches.0.6",
-
-            "model.pts_bbox_head.map_cls_branches.0.0",
-            "model.pts_bbox_head.map_cls_branches.0.0",
-            "model.pts_bbox_head.map_cls_branches.0.1",
-            "model.pts_bbox_head.map_cls_branches.0.1",
-            "model.pts_bbox_head.map_cls_branches.0.3",
-            "model.pts_bbox_head.map_cls_branches.0.3",
-            "model.pts_bbox_head.map_cls_branches.0.4",
-            "model.pts_bbox_head.map_cls_branches.0.4",
-            "model.pts_bbox_head.map_cls_branches.0.6",
-            "model.pts_bbox_head.map_cls_branches.0.6",
-
-            "model.pts_bbox_head.map_reg_branches.0.0",
-            "model.pts_bbox_head.map_reg_branches.0.0",
-            "model.pts_bbox_head.map_reg_branches.0.2",
-        ],
-    ]
-
-    max_retry = len(SKIP_GROUPS) + 1
-    success = False
-
-    def build_skip_layers(level: int):
-        skip = []
-        for i in range(min(level, len(SKIP_GROUPS))):
-            skip.extend(SKIP_GROUPS[i])
-        return skip
-
-    for level in range(max_retry):
-        print(f"\n[TRY] skip level = {level}")
-
-        skip_layer_names = build_skip_layers(level)
-        print(f"[INFO] skip_layer_names count = {len(skip_layer_names)}")
-
-        sim = create_quant_sim(
-            model=wrapped_model,
-            device=args.device,
-            dummy_input=dummy_input,
-            quant_scheme=args.quant_scheme,
-            default_output_bw=args.default_output_bw,
-            default_param_bw=args.default_param_bw,
-            config_path=args.config_path,
-            skip_layer_names=skip_layer_names
-        )
-
-        try:
-            # ---- calibration ----
-            sim.compute_encodings(
-                forward_pass_callback=calibration_forward_pass,
-                forward_pass_callback_args=(
-                    data_loader,
-                    torch.device(args.device),
-                    args.calib_batches,
-                    args.calib_max_samples,
-                ),
-            )
-
-            # ---- save ----
-            if args.save_quant_checkpoint is not None:
-                quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
-
-            print(f"[SUCCESS] worked at skip level {level}")
-            success = True
-            break
-
-        except Exception as e:
-            print(f"[FAIL] level {level}: {e}")
-
-            if level == max_retry - 1:
-                raise
-
-    if args.save_quant_checkpoint is not None:
-        quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
-        print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
+    # if args.save_quant_checkpoint is not None:
+    #     quantsim.save_checkpoint(sim, args.save_quant_checkpoint)
+    #     print(f"Saved AIMET sim checkpoint to: {args.save_quant_checkpoint}")
 
     if not args.no_export:
         export_dir = osp.join(args.work_dir, args.export_prefix)

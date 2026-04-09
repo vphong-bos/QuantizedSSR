@@ -259,21 +259,21 @@ class SpatialCrossAttention(BaseModule):
         log_suffix = None
         combined_frames = None
         indices_dir = None
-        if self.debug_save:
-            if self._video_backend is None:
-                raise RuntimeError(
-                    "Video logging requires either OpenCV (cv2) or imageio; neither dependency is available.")
-            if not self._debug_dirs_ready:
-                (self.debug_log_dir / 'heatmaps').mkdir(parents=True, exist_ok=True)
-                (self.debug_log_dir / 'index_queries').mkdir(parents=True, exist_ok=True)
-                self._debug_dirs_ready = True
-            self._debug_iter += 1
-            log_suffix = f"{self._run_timestamp}_{self._run_timestamp_ms}_iter_{self._debug_iter:06d}"
-            combined_frames = {}
-            integrated_accumulators = {}
-            indices_dir = self.debug_log_dir / 'index_queries'
-        elif self._video_writers or self._combined_video_writers:
-            self.close_debug_writers()
+        # if self.debug_save:
+        #     if self._video_backend is None:
+        #         raise RuntimeError(
+        #             "Video logging requires either OpenCV (cv2) or imageio; neither dependency is available.")
+        #     if not self._debug_dirs_ready:
+        #         (self.debug_log_dir / 'heatmaps').mkdir(parents=True, exist_ok=True)
+        #         (self.debug_log_dir / 'index_queries').mkdir(parents=True, exist_ok=True)
+        #         self._debug_dirs_ready = True
+        #     self._debug_iter += 1
+        #     log_suffix = f"{self._run_timestamp}_{self._run_timestamp_ms}_iter_{self._debug_iter:06d}"
+        #     combined_frames = {}
+        #     integrated_accumulators = {}
+        #     indices_dir = self.debug_log_dir / 'index_queries'
+        # elif self._video_writers or self._combined_video_writers:
+        self.close_debug_writers()
 
         D = reference_points_cam.size(3)
         indexes = []
@@ -511,23 +511,24 @@ class SpatialCrossAttention(BaseModule):
         return writer
 
     def _append_heatmap_frame(self, cam_idx: int, batch_idx: int, frame: np.ndarray) -> None:        
-        if frame.ndim == 2:
-            frame = np.stack([frame] * 3, axis=-1)
-        if frame.dtype != np.uint8:
-            frame = np.clip(frame, 0, 255).astype(np.uint8)
+        pass
+        # if frame.ndim == 2:
+        #     frame = np.stack([frame] * 3, axis=-1)
+        # if frame.dtype != np.uint8:
+        #     frame = np.clip(frame, 0, 255).astype(np.uint8)
 
-        writer = self._get_video_writer(cam_idx, batch_idx)
+        # writer = self._get_video_writer(cam_idx, batch_idx)
 
-        # if writer is None:
-        #     return
+        # # if writer is None:
+        # #     return
 
-        if self._video_backend == 'cv2':
-            if frame.shape[0] != self.bev_size[0] or frame.shape[1] != self.bev_size[1]:
-                frame = cv2.resize(frame, (self.bev_size[1], self.bev_size[0]), interpolation=cv2.INTER_NEAREST)
-            frame_bgr = np.ascontiguousarray(frame[:, :, ::-1])
-            writer.write(frame_bgr)
-        else:
-            writer.append_data(np.ascontiguousarray(frame))
+        # if self._video_backend == 'cv2':
+        #     if frame.shape[0] != self.bev_size[0] or frame.shape[1] != self.bev_size[1]:
+        #         frame = cv2.resize(frame, (self.bev_size[1], self.bev_size[0]), interpolation=cv2.INTER_NEAREST)
+        #     frame_bgr = np.ascontiguousarray(frame[:, :, ::-1])
+        #     writer.write(frame_bgr)
+        # else:
+        #     writer.append_data(np.ascontiguousarray(frame))
 
     def _get_combined_writer(self, batch_idx: int, width: int, height: int):
         # if not self.debug_save:
