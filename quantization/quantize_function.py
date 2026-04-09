@@ -359,7 +359,6 @@ def load_quantized_model(
                 return ((coord + 1.0) * (size - 1)) / 2.0
             return ((coord + 1.0) * size - 1.0) / 2.0
 
-        from onnx import helper, TensorProto
         from onnxruntime_extensions import onnx_op, PyCustomOpDef, get_library_path, enable_py_op
         import numpy as np
 
