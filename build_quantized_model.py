@@ -44,7 +44,7 @@ from quantization.registered_ops import QuantizedLinear
 
 from evaluation.eval_dataset import extract_data
 from evaluation.eval_dataset import build_eval_loader
-from quantization.quantize_function import AimetTraceWrapper, create_quant_sim, calibration_forward_pass, move_to_device_keep_structure
+from quantization.quantize_function import AimetTraceWrapper, create_quant_sim, calibration_forward_pass, move_to_device
 from quantization.quant_techniques import maybe_run_bn_fold, maybe_run_cle, maybe_run_seq_mse
 from ssr.projects.mmdet3d_plugin.SSR.model import load_default_model
 
@@ -187,7 +187,7 @@ def main(args):
 
     first_batch = next(iter(data_loader))
     first_batch = extract_data(first_batch)
-    prepared_batch = move_to_device_keep_structure(first_batch, torch.device(args.device))
+    prepared_batch = move_to_device(first_batch, torch.device(args.device))
 
     wrapped_model = AimetTraceWrapper(model=model).to(args.device).eval()
     wrapped_model.set_batch(prepared_batch)
