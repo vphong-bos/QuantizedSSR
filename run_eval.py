@@ -250,12 +250,12 @@ def main():
             device=args.device
         )
 
-        print(quant_results)
-        print("type(quant_results):", type(quant_results))
-        print("len(quant_results):", len(quant_results))
-        print("type(quant_results[0]):", type(quant_results[0]))
-        print("quant_results[0].shape:", getattr(quant_results[0], "shape", None))
-        print("quant_results[0]:", quant_results[0])
+        # print(quant_results)
+        # print("type(quant_results):", type(quant_results))
+        # print("len(quant_results):", len(quant_results))
+        # print("type(quant_results[0]):", type(quant_results[0]))
+        # print("quant_results[0].shape:", getattr(quant_results[0], "shape", None))
+        # print("quant_results[0]:", quant_results[0])
 
         if rank == 0:
             print("======================================================")
