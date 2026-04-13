@@ -188,27 +188,15 @@ def main():
 
     fp32_results = None
     quant_results = None
-
-    # kwargs = {}
-    # kwargs['jsonfile_prefix'] = osp.join('test', 'hihihahahuhu')
-
-    # eval_kwargs = cfg.get('evaluation', {}).copy()
-    # for key in [
-    #     'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
-    #     'rule'
-    # ]:
-    #     eval_kwargs.pop(key, None)
-    # eval_kwargs.update(dict(metric=args.eval, **kwargs))
-
-
+    
     if args.fp32_weights:
         print("Loading FP32 model...")
         fp32_model, _ = load_default_model(
-            cfg,
-            args.fp32_weights,
-            dataset,
-            args.fuse_conv_bn,
-            args.device,
+            cfg=cfg,
+            checkpoint_path=args.fp32_weights,
+            dataset=dataset,
+            fuse_conv_bn=args.fuse_conv_bn,
+            map_location=args.device,
         )
         fp32_model.eval()
 

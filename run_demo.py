@@ -1,54 +1,17 @@
 import os
-import signal
-import subprocess
+import sys
 import argparse
 
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, root_dir)
 
-def build_env(working_dir: str):
-    env = os.environ.copy()
-    env["PYTHONNOUSERSITE"] = "1"
-    env["MPLBACKEND"] = "Agg"
-    env["PYTHONUNBUFFERED"] = "1"
-    env["WORKING_DIR"] = working_dir
-    return env
+from script_launcher import run_script
 
 
-def stream_process(cmd, cwd, env, label):
-    print(f"\n[INFO] Starting: {label}")
-    print("[INFO] Command:", " ".join(cmd))
-
-    process = subprocess.Popen(
-        cmd,
-        cwd=cwd,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        preexec_fn=os.setsid,
-    )
-
-    try:
-        for line in process.stdout:
-            print(line, end="")
-    except KeyboardInterrupt:
-        print(f"\n[INFO] Stopping process: {label}")
-        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-    finally:
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            print(f"[WARN] Force killing process: {label}")
-            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-
-    if process.returncode != 0:
-        raise subprocess.CalledProcessError(process.returncode, cmd)
-
-
-def run_reference_model(args, env, label="FP32"):
+def run_reference_model(args, label="FP32"):
     reference_run = args.reference_run
     if reference_run is None:
-        reference_run = os.path.join(args.tt_metal_root, "models/bos_model/ssr/reference/run.py")
+        reference_run = os.path.join(args.tt_metal_root, "ssr/bos_model/ssr/reference/run.py")
 
     cmd = [
         args.python_bin,
@@ -65,10 +28,15 @@ def run_reference_model(args, env, label="FP32"):
     if args.fuse_conv_bn:
         cmd.append("--fuse-conv-bn")
 
-    stream_process(cmd, cwd=os.path.dirname(reference_run), env=env, label=label)
+    run_script(
+        cmd,
+        cwd=os.path.dirname(reference_run),
+        extra_env={"WORKING_DIR": args.working_dir},
+        label=label,
+    )
 
 
-def run_quantized_model(args, env, label="Quantized"):
+def run_quantized_model(args, label="Quantized"):
     quant_eval_script = os.path.join(args.working_dir, "run_eval.py")
     if not os.path.exists(quant_eval_script):
         raise FileNotFoundError(f"Quantized eval script not found: {quant_eval_script}")
@@ -96,7 +64,12 @@ def run_quantized_model(args, env, label="Quantized"):
     if args.enable_bn_fold:
         cmd.append("--enable_bn_fold")
 
-    stream_process(cmd, cwd=args.working_dir, env=env, label=label)
+    run_script(
+        cmd,
+        cwd=args.working_dir,
+        extra_env={"WORKING_DIR": args.working_dir},
+        label=label,
+    )
 
 
 def main():
@@ -172,18 +145,13 @@ def main():
     )
 
     args = parser.parse_args()
-    env = build_env(args.working_dir)
 
     label = args.task if args.task != "all" else "all"
     fp32_label = f"{label} | FP32"
     quant_label = f"{label} | Quantized"
 
-    try:
-        run_reference_model(args, env, label=fp32_label)
-        run_quantized_model(args, env, label=quant_label)
-    except subprocess.CalledProcessError as e:
-        print(f"\n[ERROR] Script failed with exit code {e.returncode}")
-        raise
+    run_reference_model(args, label=fp32_label)
+    run_quantized_model(args, label=quant_label)
 
 
 if __name__ == "__main__":
