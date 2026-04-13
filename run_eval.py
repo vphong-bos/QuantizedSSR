@@ -127,11 +127,11 @@ def compute_pcc(fp32_results, quant_results, eps=1e-12):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="MMDet test (and eval) a model")
-    parser.add_argument("--config_path", help="test config file path")
+    parser.add_argument("--config_path", help="config for sim model quantization")
     parser.add_argument("--fp32_weights", help="checkpoint file")
     parser.add_argument("--quant_weights", help="checkpoint file")
     parser.add_argument("--encoding_path", default = None, help="(Optional) Encoding file")
-    parser.add_argument("--config", default = None, help="Config file for sim model creation")
+    parser.add_argument("--config", default = None, help="Config file for normal model creation")
     parser.add_argument(
         "--fuse-conv-bn",
         action="store_true",
@@ -144,13 +144,7 @@ def parse_args():
         nargs="+",
         help='evaluation metrics, which depends on the dataset, e.g., "bbox", "segm", "proposal" for COCO, and "mAP", "recall" for PASCAL VOC',
     )
-    parser.add_argument("--seed", type=int, default=0, help="random seed")
-    parser.add_argument(
-        "--cfg-options",
-        nargs="+",
-        action=DictAction,
-        help='override some settings in the used config, the key-value pair in xxx=yyy format will be merged into config file. If the value to be overwritten is a list, it should be like key="[a,b]" or key=a,b It also allows nested list/tuple values, e.g. key="[(a,b),(c,d)]" Note that the quotation marks are necessary and that no white space is allowed.',
-    )
+
     parser.add_argument("--local_rank", type=int, default=0)
     parser.add_argument("--max_samples", type=int, default=None)
     parser.add_argument(

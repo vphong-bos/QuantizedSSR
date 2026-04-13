@@ -124,11 +124,6 @@ def parse_args(argv=None):
     parser.add_argument("--config_path", type=str, default=None, help="AIMET quantsim config file")
 
     parser.add_argument("--calib_batches", type=int, default=1, help="number of calibration batches")
-    parser.add_argument("--eval_batches", type=int, default=-1, help="max eval batches, -1 means full set")
-    parser.add_argument("--eval_metric", type=str, nargs="+", default=["bbox"], help="dataset.evaluate metrics")
-
-    parser.add_argument("--run_fp32_eval", action="store_true", help="evaluate FP32 model")
-    parser.add_argument("--run_int8_eval", action="store_true", help="evaluate quant sim model")
 
     parser.add_argument("--enable_cle", dest="enable_cle", action="store_true", help="enable CLE")
     parser.add_argument("--disable_cle", dest="enable_cle", action="store_false", help="disable CLE")
@@ -193,6 +188,7 @@ def main(args):
     wrapped_model.set_batch(prepared_batch)
 
     real_img = prepared_batch["img"][0]
+    # real_img = prepared_batch["img"]
 
     if not torch.is_tensor(real_img):
         raise TypeError(f"Expected tensor, got {type(real_img)}")
@@ -258,7 +254,7 @@ def main(args):
         print("AIMET export completed successfully.")
 
     if args.export_onnx:
-        export_dir = osp.join(args.work_dir, args.export_prefix)
+        export_dir = osp.join(args.work_dir, "onnx")
         onnx_path = osp.join(export_dir, f"{args.export_prefix}.onnx")
         print("Exporting quantized model to ONNX QDQ...")
         aimet_onnx.export(
