@@ -1,6 +1,7 @@
 import mmcv
 import torch
 import warnings
+from tqdm import tqdm
 import onnxruntime as ort
 
 from evaluation.eval_dataset import extract_data
@@ -390,10 +391,13 @@ def evaluate_model(
         model.eval()
 
     results = []
+    outs = []
     dataset = data_loader.dataset
     prog_bar = mmcv.ProgressBar(len(dataset))
 
     try:
+        prog_bar = tqdm(total=max_samples if max_samples is not None else len(data_loader))
+
         for i, data in enumerate(data_loader):
             if max_samples is not None and i >= max_samples:
                 break
@@ -406,10 +410,12 @@ def evaluate_model(
             result = get_model_result(normalized_model_obj, data)
 
             results.extend(result)
+            # outs.append(out)
 
-            batch_size = len(result)
-            for _ in range(batch_size):
-                prog_bar.update()
+            # Update once per batch
+            prog_bar.update(len(result))
+
+        prog_bar.close()
 
     except KeyboardInterrupt:
         print("Keyboard interrupt, exiting...")

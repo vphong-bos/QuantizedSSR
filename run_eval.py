@@ -98,6 +98,43 @@ def _flatten_result(obj):
 
     return vals
 
+import torch
+
+def to_tensor(x):
+    if isinstance(x, torch.Tensor):
+        return x.detach().float()
+    if hasattr(x, "dequantize"):
+        return x.dequantize().detach().float()
+    return torch.as_tensor(x).detach().float()
+
+def pcc(a, b, eps=1e-8):
+    a = to_tensor(a).reshape(-1)
+    b = to_tensor(b).reshape(-1)
+    a = a - a.mean()
+    b = b - b.mean()
+    return ((a * b).sum() / (torch.sqrt((a * a).sum()) * torch.sqrt((b * b).sum()) + eps)).item()
+
+def compare_out_dict(out_ref, out_test):
+    assert isinstance(out_ref, dict), f"out_ref must be dict, got {type(out_ref)}"
+    assert isinstance(out_test, dict), f"out_test must be dict, got {type(out_test)}"
+
+    results = {}
+    for k in out_ref.keys():
+        if k not in out_test.keys():
+            results[k] = "missing"
+            continue
+        results[k] = pcc(out_ref[k], out_test[k])
+    return results
+
+def compare_out_list(ref_list, test_list):
+    assert isinstance(ref_list, list), f"ref_list must be list, got {type(ref_list)}"
+    assert isinstance(test_list, list), f"test_list must be list, got {type(test_list)}"
+    assert len(ref_list) == len(test_list), f"length mismatch: {len(ref_list)} vs {len(test_list)}"
+
+    all_results = []
+    for ref, test in zip(ref_list, test_list):
+        all_results.append(compare_out_dict(ref, test))
+    return all_results
 
 def compute_pcc(fp32_results, quant_results, eps=1e-12):
     fp32_flat = _flatten_result(fp32_results)
@@ -243,14 +280,39 @@ def main():
             print("======================================================")
             print(dataset.evaluate(quant_results, metric=args.eval))
 
-    if rank == 0 and fp32_results is not None and quant_results is not None:
-        pcc, num_values = compute_pcc(fp32_results, quant_results)
-        print("======================================================")
-        if pcc is None:
-            print(f"PCC could not be computed (num_values={num_values})")
-        else:
-            print(f"FP32 vs Quant PCC: {pcc:.8f} (num_values={num_values})")
+    # if rank == 0 and fp32_results is not None and quant_results is not None:
+    #     pcc, num_values = compute_pcc(fp32_results, quant_results)
+    #     print("=========================BBOX_results=============================")
+    #     if pcc is None:
+    #         print(f"PCC could not be computed (num_values={num_values})")
+    #     else:
+    #         print(f"FP32 vs Quant PCC: {pcc:.8f} (num_values={num_values})")
 
+    #     res = compare_out_list(outs, quant_outs)
+
+    #     from collections import defaultdict
+
+    #     def average_pcc(results_list):
+    #         """
+    #         results_list: list of dicts, e.g.
+    #         [
+    #             {'bev_embed': 0.99, 'scene_query': 0.997, 'ego_fut_preds': 0.999},
+    #             ...
+    #         ]
+    #         """
+    #         sums = defaultdict(float)
+    #         counts = defaultdict(int)
+
+    #         for item in results_list:
+    #             for k, v in item.items():
+    #                 if isinstance(v, (int, float)):
+    #                     sums[k] += v
+    #                     counts[k] += 1
+
+    #         avg = {k: sums[k] / counts[k] for k in sums}
+    #         return avg
+    #     print("=========================Out_results=============================")
+    #     print(average_pcc(res))
 
 if __name__ == "__main__":
     main()

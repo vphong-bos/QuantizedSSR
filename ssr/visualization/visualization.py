@@ -92,7 +92,7 @@ class Visualizer:
         cv2.polylines(overlay, [pts.astype(np.int32)], False, color, thickness, cv2.LINE_AA)
         cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, dst=img)
 
-    def draw_arrows(self, img, plan_vecs, max_arrows):
+    def draw_arrows(self, img, plan_vecs, max_arrows, color):
         """Draw arrowhead to planned trajectory"""
         h, w, _ = img.shape
 
@@ -113,8 +113,8 @@ class Visualizer:
             return img
 
         pts = np.rint(ptsf).astype(np.int32)
-        self._draw_ribbon(img, pts, thickness=100)
-        cv2.polylines(img, [pts], isClosed=False, color=(255, 0, 0), thickness=5)
+        self._draw_ribbon(img, pts, thickness=20)
+        cv2.polylines(img, [pts], isClosed=False, color=color, thickness=5)
 
         seg_vecs = ptsf[1:] - ptsf[:-1]
         seg_len = np.linalg.norm(seg_vecs, axis=1).astype(np.float32)
@@ -151,15 +151,14 @@ class Visualizer:
         if np.any(zero):
             dir_vec[zero] = seg_vecs[idx[zero]]
 
-        color = (255, 0, 0)
         for c, d in zip(centers.astype(np.float32), dir_vec.astype(np.float32)):
             self._draw_arrowhead(img, c, d, size=25, color=color)
 
-    def draw_ttnn_trajectory(self, cam_img, token_id, visualize_result, lidar2img):
+    def draw_ttnn_trajectory(self, cam_img, token_id, visualize_result, lidar2img, color):
         plan_cmd = np.argmax(visualize_result['plan_results_ttnn'][token_id][1][0, 0, 0].cpu().float().numpy())
         plan_traj = visualize_result['plan_results_ttnn'][token_id][0][plan_cmd].cpu().float().numpy()
         plan_vecs = self.get_plan_vecs(plan_traj, lidar2img)
-        self.draw_arrows(cam_img, plan_vecs, max_arrows=5)
+        self.draw_arrows(cam_img, plan_vecs, max_arrows=5, color=color)
         return cam_img
     
     def resize_hw(self, img, scale=1, interp=cv2.INTER_AREA):
@@ -247,7 +246,7 @@ class Visualizer:
         canvas[sy + size + gap_logo:sy + size + gap_logo + nh, sx:sx + nw] = logo[:nh, :nw]
 
         # titles
-        title1, title2 = "Eagle-N A0", "SSR Live Demo"
+        title1, title2 = "Quantized", "SSR Live Demo"
         font = cv2.FONT_ITALIC
         s1, t1 = 2.5, 7
         s2, t2 = 1.5, 6
@@ -345,6 +344,61 @@ class Visualizer:
         canvas = np.zeros((canvas_h, canvas_w, 3), dtype=np.uint8)
         return self.draw_canvas(canvas, car_img, logo_img, is_ver1)
 
+    def create_compare_visual(self, index, visualize_result, quant_visualize_result, car_path, logo_path, fps):
+        car_img = cv2.imread(car_path, cv2.IMREAD_UNCHANGED)
+        logo_img = cv2.imread(logo_path)
+        token_id = list(visualize_result['plan_results_ttnn'].keys())[0]
+        quant_token_id = list(quant_visualize_result['plan_results_ttnn'].keys())[0]
+
+        plan_cmd = np.argmax(visualize_result['plan_results_ttnn'][token_id][1][0, 0, 0].cpu().numpy())
+        quant_plan_cmd = np.argmax(quant_visualize_result['plan_results_ttnn'][quant_token_id][1][0, 0, 0].cpu().numpy())
+        direction = self.direction_cmd[plan_cmd]
+        quant_direction = self.direction_cmd[quant_plan_cmd]
+        
+        for cam_idx, cam_name in enumerate(self.cam_names):
+            cam_img = cv2.imread(self.dataset.get_data_info(index)['img_filename'][cam_idx])
+            if cam_name == 'CAM_FRONT':
+                lidar2img = self.dataset.get_data_info(index)['lidar2img'][cam_idx]
+                cam_img = self.draw_ttnn_trajectory(cam_img, token_id, visualize_result, lidar2img, color=(0, 255, 0))
+                cam_img = self.draw_ttnn_trajectory(cam_img, quant_token_id, quant_visualize_result, lidar2img, color=(0, 0, 255))
+            cam_img = self.add_cam_label(cam_img, cam_name)
+            self.cam_imgs[cam_name] = cam_img
+
+        # add visualization version checking
+        is_ver1 = None
+        if "1" in car_path:
+            is_ver1 = True
+        elif "2" in car_path:
+            is_ver1 = False
+        self.visualize_img = self.create_canvas(canvas_shape=self.canvas_shape, car_img=car_img, logo_img=logo_img, is_ver1=is_ver1)
+        base_x = 750
+        base_y = self.canvas_shape[0] - 100
+        line_gap = 40
+
+        cv2.putText(
+            self.visualize_img,
+            f'Direction: {direction}',
+            (base_x, base_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.9,
+            (0, 255, 0),
+            2,
+            cv2.LINE_AA
+        )
+
+        cv2.putText(
+            self.visualize_img,
+            f'Quant Direction: {quant_direction}',
+            (base_x, base_y + line_gap),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.9,
+            (0, 0, 255),
+            2,
+            cv2.LINE_AA
+        )
+        if fps != 0:
+            cv2.putText(self.visualize_img, f'FPS: {fps}', (750, self.canvas_shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+
     def create_visual(self, index, visualize_result, car_path, logo_path, fps):
         car_img = cv2.imread(car_path, cv2.IMREAD_UNCHANGED)
         logo_img = cv2.imread(logo_path)
@@ -370,6 +424,7 @@ class Visualizer:
         cv2.putText(self.visualize_img, f'Direction: {direction}', (750, self.canvas_shape[0] - 100), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
         if fps != 0:
             cv2.putText(self.visualize_img, f'FPS: {fps}', (750, self.canvas_shape[0] - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+
 
     def get_visual(self):
         return self.visualize_img

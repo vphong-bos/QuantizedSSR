@@ -13,6 +13,7 @@ from ssr.projects.mmdet3d_plugin.SSR.runner.runner_infra import (
     InvocationBuffer,
     SSRRunnerInfra,
 )
+from ssr.projects.mmdet3d_plugin.SSR.utils.misc import extract_data_from_container
 from ssr.visualization.visualization import Visualizer
 from ssr.visualization.bevmaploader import BEVMapLoader
 
@@ -80,17 +81,30 @@ class SSRRunner:
         self.execution_time = end_time - getattr(self, "last_time", 0.0)
         self.last_time = end_time
 
+    def _not_record_execution_time(self) -> None:
+        """Update self.execution_time from the last timestamp and move the cursor."""
+        end_time = time.time()
+        self.last_time = end_time
+
+
     def _should_post_process(self, **kwargs: Any) -> bool:
         return kwargs.get("visualize", False) or kwargs.get("validate", False)
 
     # ----------------------------- Core modes --------------------------------
 
-    def _reference_run(self, data: Dict[str, Any]) -> Any:
-        """Run PyTorch reference (no gradients)."""
+    def _run_fp32(self, data: Dict[str, Any]) -> Any:
+        """Run PyTorch fp32 model (no gradients)."""
         data_pt = extract_data_from_container(deepcopy(data), tensor="pt")
         with torch.no_grad():
-            self.runner_infra.run_ref(data_pt)
-        return self.runner_infra.ref_out
+            self.runner_infra.run_fp32(data_pt)
+        return self.runner_infra.fp32_out
+    
+    def _run_quant(self, data: Dict[str, Any]) -> Any:
+        """Run PyTorch fp32 model (no gradients)."""
+        data_pt = extract_data_from_container(deepcopy(data), tensor="pt")
+        with torch.no_grad():
+            self.runner_infra.run_quant(data_pt)
+        return self.runner_infra.quant_out
 
     # ----------------------------- Paths & Post -------------------------------
 
@@ -104,36 +118,117 @@ class SSRRunner:
         ts = time.strftime("%Y%m%d_%H%M%S")
         return os.path.join(out_dir, f"realtime_{ts}.mp4")
 
-    def _post_process(self, tt_result: Dict[str, Any], data: Dict[str, Any], **kwargs: Any) -> None:
+    def _post_process(self, quant_result, data: Dict[str, Any], **kwargs: Any) -> None:
         """Visualization/validation path (batch size currently restricted to 1)."""
-        bbox_results = self.simple_test(
-            outs=tt_result,
-            img_metas=(data["img_metas"][0].data)[0],
-            ego_fut_cmd=(data["ego_fut_cmd"][0].data)[0],
-        )
-        tt_result = bbox_results
 
-        # if kwargs.get("visualize", False) and kwargs.get("use_bev", False):
-        #     st_bev = time.time()
-        #     sample = self.bevloader.get_batch_bev_map_info(kwargs.get("sample_idx", 0))
-        #     self.bevloader.draw_batch_bev_map(sample)
-        #     logger.debug(f"Done draw BEV Map, taken: {time.time() - st_bev:.4f}")
+        mode = kwargs.get("mode", "quant")
+
+        # Case 1: already post-processed output from runner
+        if (
+            isinstance(quant_result, list)
+            and len(quant_result) > 0
+            and isinstance(quant_result[0], dict)
+            and "pts_bbox" in quant_result[0]
+        ):
+            bbox_results = quant_result
+
+        # Case 2: raw model output dict
+        else:
+            bbox_results = self.simple_test(
+                outs=quant_result,
+                img_metas=(data["img_metas"][0].data)[0],
+                ego_fut_cmd=(data["ego_fut_cmd"][0].data)[0],
+            )
+
+        quant_result = bbox_results
 
         if kwargs.get("visualize", False):
+            if mode == "fp32":
+                pred_color = (0, 255, 0)
+                title = "FP32"
+            else:
+                pred_color = (255, 0, 0)
+                title = "QUANT" 
+
             v_st = time.time()
             visualize_result = self.dataset._format_bbox_realtime(
-                {"bbox_results": tt_result}["bbox_results"], is_ttnn=True, sample_idx=kwargs.get("sample_idx", 0)
+                {"bbox_results": quant_result}["bbox_results"], is_ttnn=True, sample_idx=kwargs.get("sample_idx", 0)
             )
-            self.visualizer.create_visual(
+            visualize_result = self.dataset._format_bbox_realtime(
+                {"bbox_results": quant_result}["bbox_results"], is_ttnn=True, sample_idx=kwargs.get("sample_idx", 0)
+            )
+            self.visualizer.create_compare_visual(
                 index=kwargs.get("sample_idx", 0),
                 visualize_result=visualize_result,
-                car_path=os.path.join(os.getenv("TT_METAL_HOME"), "models/bos_model/ssr/scripts/assets/car2.png"),
-                logo_path=os.path.join(os.getenv("TT_METAL_HOME"), "models/bos_model/ssr/scripts/assets/bos_logo.png"),
+                car_path="/workspace/quant_pipeline/QuantizedSSR/ssr/visualization/assets/car2.png",
+                logo_path="/workspace/quant_pipeline/QuantizedSSR/ssr/visualization/assets/bos_logo.png",
                 fps=round(1.0 / self.execution_time, 2),
+                pred_color=pred_color,
+                title=title,
             )
             if kwargs.get("use_bev", False):
                 visualize_img = self.visualizer.get_visual()
                 self.bevloader.get_token_id(visualize_result)
+                new_visual = self.bevloader.create_output_bev_map(canvas=visualize_img)
+                self.visualizer.set_visual(new_visual)
+
+            if kwargs.get("realtime", False):
+                keep_running = self.visualizer.show_realtime()
+                if not keep_running:
+                    logger.info("Realtime display stopped by user.")
+            else:
+                self.visualizer.show_video()
+
+    def _post_process_compare(self, result, quant_result, data: Dict[str, Any], **kwargs: Any) -> None:
+        """Visualization/validation path (batch size currently restricted to 1)."""
+
+        # Case 1: already post-processed output from runner
+        if (
+            isinstance(quant_result, list)
+            and len(quant_result) > 0
+            and isinstance(quant_result[0], dict)
+            and "pts_bbox" in quant_result[0]
+        ):
+            bbox_results = result
+            quant_bbox_results = quant_result
+
+        # Case 2: raw model output dict
+        else:
+            bbox_results = self.simple_test(
+                outs=result,
+                img_metas=(data["img_metas"][0].data)[0],
+                ego_fut_cmd=(data["ego_fut_cmd"][0].data)[0],
+            )
+
+            quant_bbox_results = self.simple_test(
+                outs=quant_result,
+                img_metas=(data["img_metas"][0].data)[0],
+                ego_fut_cmd=(data["ego_fut_cmd"][0].data)[0],
+            )
+
+        result = bbox_results
+        quant_result = quant_bbox_results
+
+        if kwargs.get("visualize", False):
+
+            v_st = time.time()
+            visualize_result = self.dataset._format_bbox_realtime(
+                {"bbox_results": result}["bbox_results"], is_ttnn=True, sample_idx=kwargs.get("sample_idx", 0)
+            )
+            quant_visualize_result = self.dataset._format_bbox_realtime(
+                {"bbox_results": quant_result}["bbox_results"], is_ttnn=True, sample_idx=kwargs.get("sample_idx", 0)
+            )
+            self.visualizer.create_compare_visual(
+                index=kwargs.get("sample_idx", 0),
+                visualize_result=visualize_result,
+                quant_visualize_result=quant_visualize_result,
+                car_path="/workspace/quant_pipeline/QuantizedSSR/ssr/visualization/assets/car2.png",
+                logo_path="/workspace/quant_pipeline/QuantizedSSR/ssr/visualization/assets/bos_logo.png",
+                fps=round(1.0 / self.execution_time, 2),
+            )
+            if kwargs.get("use_bev", False):
+                visualize_img = self.visualizer.get_visual()
+                self.bevloader.get_token_id(quant_visualize_result)
                 new_visual = self.bevloader.create_output_bev_map(canvas=visualize_img)
                 self.visualizer.set_visual(new_visual)
 
@@ -190,8 +285,7 @@ class SSRRunner:
         metric_dict = None
         return bbox_results, metric_dict
 
-    def run(self, data: Dict[str, Any], mode: str = "performant", **kwargs: Any) -> Any:
-        # Lazy-init visualization utilities if needed
+    def run(self, data: Dict[str, Any], mode: str = "quant", **kwargs: Any) -> Any:
         if kwargs.get("visualize", False):
             if self.visualizer is None:
                 self.visualizer = Visualizer(dataset=self.dataset)
@@ -203,8 +297,13 @@ class SSRRunner:
                 self.bevloader.draw_bev_map()
 
         output = None
-        if mode == "reference":
-            output = self._reference_run(data)
+        if mode == "fp32":
+            output = self._run_fp32(data)
+            self._not_record_execution_time()
+
+        if mode == "quant":
+            output = self._run_quant(data)
+            self._record_execution_time()
 
         return output
 

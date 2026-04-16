@@ -1,5 +1,6 @@
 import argparse
 import os
+import onnxsim
 import os.path as osp
 import random
 import sys
@@ -194,6 +195,15 @@ def main(args):
         raise TypeError(f"Expected tensor, got {type(real_img)}")
 
     dummy_input = torch.zeros_like(real_img)
+
+    torch.onnx.export(
+        model,
+        args=([dummy_input],),
+        f="test/ssr.onnx",
+        input_names=["input"],
+        output_names=["output"],
+        opset_version=17
+    )
 
     maybe_run_cle(wrapped_model, dummy_input, args.enable_cle)
     maybe_run_bn_fold(wrapped_model, dummy_input, args.enable_bn_fold)

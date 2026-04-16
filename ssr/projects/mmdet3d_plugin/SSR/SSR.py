@@ -256,6 +256,10 @@ class SSR(nn.Module):
         self.prev_frame_info['prev_bev'] = new_prev_bev
         self.prev_frame_info['prev_angle'] = tmp_angle
 
+        # print(f"Out: {outs}")
+        # print(f"bbox_results: {bbox_results}")
+
+        # return bbox_results, outs
         return bbox_results
 
     def forward_trace(

@@ -1472,8 +1472,7 @@ class VADCustomNuScenesDataset(NuScenesDataset):
             }
             logger.debug('\n GT anns writes to', self.map_ann_file)
             mmcv.dump(nusc_submissions, self.map_ann_file)
-        else:
-            logger.debug(f'{self.map_ann_file} exist, not update')
+            # logger.debug(f'{self.map_ann_file} exist, not update')
 
     def _format_bbox(self, results, jsonfile_prefix=None, score_thresh=0.2, is_ttnn=False):
         """Convert the results to the standard format.
@@ -1509,7 +1508,8 @@ class VADCustomNuScenesDataset(NuScenesDataset):
         if not os.path.exists(self.map_ann_file):
             self._format_gt()
         else:
-            logger.debug(f'{self.map_ann_file} exist, not update')
+            pass
+            # logger.debug(f'{self.map_ann_file} exist, not update')
         # with open(self.map_ann_file,'r') as f:
         #     GT_anns = json.load(f)
         # gt_annos = GT_anns['GTs']
@@ -1555,10 +1555,10 @@ class VADCustomNuScenesDataset(NuScenesDataset):
         plan_gts = {}
         det = results[0]
 
-        logger.debug('Start to convert detection format...')
+        # logger.debug('Start to convert detection format...')
         annos = []
         sample_token = self.data_infos[sample_idx]['token']
-        logger.debug(f'Formatting sample {sample_token}, id={sample_idx}')
+        # logger.debug(f'Formatting sample {sample_token}, id={sample_idx}')
 
         plan_annos[sample_token] = [det['ego_fut_preds'], det['ego_fut_cmd']]
         
@@ -1566,8 +1566,8 @@ class VADCustomNuScenesDataset(NuScenesDataset):
 
         if not os.path.exists(self.map_ann_file):
             self._format_gt()
-        else:
-            logger.debug(f'{self.map_ann_file} exist, not update')
+            
+            # logger.debug(f'{self.map_ann_file} exist, not update')
 
         result_key = f"plan_results_{'ttnn' if is_ttnn else 'torch'}"
         nusc_submissions = {

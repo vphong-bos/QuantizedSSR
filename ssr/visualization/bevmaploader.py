@@ -398,7 +398,7 @@ class BEVMapLoader:
         # for debug only
         return self._bev_cache[self.token_id]['bev_bg'].copy()
 
-    def create_output_bev_map(self, draw_ego=True, color=(0, 255, 0),
+    def create_output_bev_map(self, draw_ego=True, color=(0, 0, 255),
                             canvas=None, paste_xy=(20, 20), bev_out_size=400):
         cache = self._bev_cache[self.token_id]
         bev = cache['bev_bg'].copy()

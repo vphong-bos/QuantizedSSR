@@ -5,9 +5,11 @@ from quantization.quantize_function import load_quantized_model
 
 from evaluation.eval_dataset import build_eval_loader
 
-import torch
-from mmcv.cnn.bricks.registry import AQuantENTION, NORM_LAYERS
-from mmcv.runner import load_checkpoint
+from ssr.projects.mmdet3d_plugin.SSR.utils.misc import compare_tensors
+
+# import torch
+# from mmcv.cnn.bricks.registry import AQuantENTION, NORM_LAYERS
+# from mmcv.runner import load_checkpoint
 
 from contextlib import contextmanager
 import threading
@@ -86,7 +88,8 @@ class SSRRunnerInfra:
     ):
         assert config_path is not None, "config is None."
         self.config_path = config_path
-        self.cfg, self.dataset, self.data_loader = build_eval_loader(config_path)
+        self.config = config
+        self.cfg, self.dataset, self.data_loader = build_eval_loader(config)
 
         assert quant_checkpoint_path is not None, "quant_checkpoint_path is None."
         if fp32_checkpoint_path is not None:
@@ -97,7 +100,6 @@ class SSRRunnerInfra:
         self.quant_checkpoint_path = quant_checkpoint_path
         self.encodings_path = encodings_path
         self.device = device
-        self.num_devices = device.get_num_devices()
         self.enable_bn_fold = enable_bn_fold
 
         # 2 - Initialize logger
@@ -121,29 +123,30 @@ class SSRRunnerInfra:
         self.fp32_model.eval()
 
         ## 4.2 - Quantized model
-        self.quant_obj = load_quantized_model(
+        self.quant_model = load_quantized_model(
             quant_weights=self.quant_checkpoint_path,
             device=self.device,
             encoding_path=self.encodings_path,
             config=self.config,
             config_path=self.config_path,
             enable_bn_fold=self.enable_bn_fold,
-        )
+        )["model"]
 
     def run_quant(self, data):
-        pass
-
+        if self.quant_model is None:
+            raise ValueError("quant model is not initialized.")
+        self.quant_out = self.quant_model(return_loss=False, rescale=True, **data)
+        
     def run_fp32(self, data):
         if self.fp32_model is None:
-            raise ValueError("fp32erence model is not initialized.")
-        self.fp32_out = self.fp32_model(**data)
+            raise ValueError("fp32 model is not initialized.")
+        self.fp32_out = self.fp32_model(return_loss=False, rescale=True, **data)
 
     def validate(self):
-        # Compare ego future predictions between Torch and Quant
         assert self.quant_out is not None, "Quant output is None."
         for key in self.quant_out.keys():
             if key == "scene_query":
                 continue
-            _, pcc = compare_tensors(self.fp32_out[key], self.quant_out[key], 0.98)
+            _, pcc = compare_tensors(self.fp32_out[key], self.quant_out[key], 0.00)
             assert pcc > 0.98, f"PCC below threshold: {pcc:.4f}; at key: {key}"
             self.logger.info("SSR test passed (PCC %.4f)", pcc)
